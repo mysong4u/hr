@@ -1,0 +1,52 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "rhel-openssl-3.0.x"]
+}
+
+model Job {
+  id           String      @id @default(uuid())
+  title        String
+  department   String
+  description  String
+  requirements String
+  status       String      @default("OPEN") // OPEN, CLOSED
+  applicants   Applicant[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model Applicant {
+  id           String      @id @default(uuid())
+  name         String
+  email        String
+  phone        String
+  resumeUrl    String?     // 업로드된 파일 경로
+  resumeText   String?     // 파싱된 텍스트
+  status       String      @default("APPLIED") // APPLIED, SCREENED, INTERVIEW_PROPOSED, INTERVIEW_SCHEDULED, REJECTED, ACCEPTED
+  aiScore      String?     // 상, 중, 하
+  aiReason     String?     // 분석 근거 요약
+  jobId        String
+  job          Job         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  interviews   Interview[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model Interview {
+  id                 String    @id @default(uuid())
+  applicantId        String
+  applicant          Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  interviewers       String    // 쉼표로 구분된 면접관 이메일 목록
+  scheduledTime      DateTime?
+  duration           Int       @default(60) // 분 단위
+  meetingLink        String?
+  status             String    @default("PROPOSED") // PROPOSED, CONFIRMED, COMPLETED, CANCELLED
+  proposedSlots      String?   // 지원자가 선택할 수 있도록 제안된 시간 슬롯 (JSON string)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}

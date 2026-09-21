@@ -1,0 +1,4 @@
+[build]
+  # 플랫폼 독립적인 크로스플랫폼(Windows/Linux) 빌드 스크립트를 기동합니다.
+  command = "node scripts/build.js"
+  publish = ".next"
