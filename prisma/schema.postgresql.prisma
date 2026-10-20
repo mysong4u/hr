@@ -68,6 +68,7 @@ model Site {
   location     String            // 위치 (예: 경기도 평택시)
   pmName       String            // 담당 PM
   pmContact    String?           // 담당 PM 연락처
+  status       String?           @default("진행중") // 진행상태 (진행중, 충원완료, 공사진행중, 착공준비, 보류 등)
   requirements SiteRequirement[]
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt

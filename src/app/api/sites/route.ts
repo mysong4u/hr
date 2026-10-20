@@ -21,7 +21,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, location, pmName, pmContact, requirements } = body;
+    const { name, location, pmName, pmContact, status, requirements } = body;
 
     if (!name || !location) {
       return NextResponse.json({ error: '현장명과 위치는 필수입니다.' }, { status: 400 });
@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
         location,
         pmName: pmName || '담당 PM',
         pmContact: pmContact || '',
+        status: status || '진행중',
         requirements: {
           create: Array.isArray(requirements)
             ? requirements.map((req: any) => ({
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { siteId, pmName, requirements, modifiedBy } = body;
+    const { siteId, name, location, pmName, pmContact, status, requirements, modifiedBy } = body;
 
     if (!siteId) {
       return NextResponse.json({ error: 'Site ID is required' }, { status: 400 });
@@ -85,24 +86,31 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    // If PM name modified
-    if (pmName) {
+    // Update site fields if provided
+    const updateData: any = {};
+    if (name !== undefined) updateData.name = name;
+    if (location !== undefined) updateData.location = location;
+    if (pmName !== undefined) updateData.pmName = pmName;
+    if (pmContact !== undefined) updateData.pmContact = pmContact;
+    if (status !== undefined) updateData.status = status;
+
+    if (Object.keys(updateData).length > 0) {
       await prisma.site.update({
         where: { id: siteId },
-        data: { pmName },
+        data: updateData,
       });
     }
 
     // Create Notification according to requirement (Page 15 in PDF)
-    // "평택 P5 RC공사 2공구 현장의 필요인원이 수정되었습니다. (수정자: 김민수 PM / 2026-10-16 14:32)"
     const now = new Date();
     const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    const modifier = modifiedBy || site.pmName || '현장 PM';
+    const modifier = modifiedBy || pmName || site.pmName || '현장 PM';
+    const siteTitle = name || site.name;
 
     await prisma.notification.create({
       data: {
-        title: '현장 필요인원 수정 알림',
-        message: `${site.name} 현장의 필요인원이 수정되었습니다. (수정자: ${modifier} / ${formattedDate})`,
+        title: '현장 정보 수정 알림',
+        message: `${siteTitle} 현장의 정보(인원/현황)가 수정되었습니다. (수정자: ${modifier} / ${formattedDate})`,
       },
     });
 
@@ -115,5 +123,55 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error('Failed to update site requirements:', error);
     return NextResponse.json({ error: 'Failed to update site requirements' }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    let id = searchParams.get('id');
+
+    if (!id) {
+      try {
+        const body = await request.json();
+        id = body.id || body.siteId;
+      } catch (e) {
+        // body might be empty
+      }
+    }
+
+    if (!id) {
+      return NextResponse.json({ error: '현장 ID가 필요합니다.' }, { status: 400 });
+    }
+
+    const site = await prisma.site.findUnique({
+      where: { id },
+    });
+
+    if (!site) {
+      return NextResponse.json({ error: '현장을 찾을 수 없습니다.' }, { status: 404 });
+    }
+
+    await prisma.site.delete({
+      where: { id },
+    });
+
+    // Create Notification
+    const now = new Date();
+    const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    await prisma.notification.create({
+      data: {
+        title: '현장 삭제 알림',
+        message: `${site.name} 현장이 삭제되었습니다. (${formattedDate})`,
+      },
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: `${site.name} 현장이 성공적으로 삭제되었습니다.`,
+    });
+  } catch (error) {
+    console.error('Failed to delete site:', error);
+    return NextResponse.json({ error: '현장 삭제 중 오류가 발생했습니다.' }, { status: 500 });
   }
 }
