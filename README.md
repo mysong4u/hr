@@ -1,36 +1,18 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 태일채용시스템 (Taeil ATS)
 
-## Getting Started
+(주)태일씨앤티 현장별 맞춤형 AI 채용관리 시스템입니다.
 
-First, run the development server:
+## 주요 기능
+- 현장별 필요인원 관리 대시보드 및 실시간 충원율 집계
+- 6단계 채용 파이프라인 (이력서 지원 -> 인성검사 진행/완료 -> 면접일자 확정 -> 채용여부 -> 입문교육 일정)
+- 지원자 엑셀(XLSX) 다운로드 및 이력서 드래그 앤 드롭 자동 파싱
+- 인성검사 및 면접평가표 보안 관리 (임의 비밀번호 설정, 1분 무응답 자동 닫힘)
+- 면접일자 확정 카카오톡/문자 공유 및 입문교육 문자천사(Send1004) 연동
+- 현장 담당 PM 인원 수정 시 인사팀 실시간 알림 기능
 
+## 실행 방법
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+브라우저에서 `http://localhost:3000` 접속

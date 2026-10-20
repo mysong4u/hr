@@ -21,32 +21,73 @@ model Job {
 }
 
 model Applicant {
-  id           String      @id @default(uuid())
-  name         String
-  email        String
-  phone        String
-  resumeUrl    String?     // 업로드된 파일 경로
-  resumeText   String?     // 파싱된 텍스트
-  status       String      @default("APPLIED") // APPLIED, SCREENED, INTERVIEW_PROPOSED, INTERVIEW_SCHEDULED, REJECTED, ACCEPTED
-  aiScore      String?     // 상, 중, 하
-  aiReason     String?     // 분석 근거 요약
-  jobId        String
-  job          Job         @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  interviews   Interview[]
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  id                      String      @id @default(uuid())
+  name                    String
+  email                   String
+  phone                   String
+  resumeUrl               String?     // 업로드된 파일 경로
+  resumeText              String?     // 파싱된 텍스트
+  status                  String      @default("APPLIED") // APPLIED, PERSONALITY_TEST_PENDING, PERSONALITY_TEST_COMPLETED, INTERVIEW_SCHEDULED, ACCEPTED, REJECTED, ONBOARDING_SCHEDULED
+  aiScore                 String?     // 상, 중, 하
+  aiReason                String?     // 분석 근거 요약
+  applyPath               String?     // 지원경로 (사람인, 잡코리아, 지인소개 등)
+  joinDate                DateTime?   // 입사일자
+  jobRole                 String?     // 지원 직무 (공사, 안전, 공무 등)
+  siteName                String?     // 지원 현장 (평택, 화성 등)
+  memo                    String?     // 지원자 메모
+  personalityTestFile     String?     // 인성검사 결과표 파일 경로
+  personalityTestPassword String?     // 인성검사 결과표 열람 비밀번호
+  interviewEvalFile       String?     // 면접평가표 파일 경로
+  interviewEvalPassword   String?     // 면접평가표 열람 비밀번호
+  interviewEvalAuth       String?     // 면접평가표 열람 권한 (면접관, 인사담당자 등)
+  jobId                   String
+  job                     Job         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  interviews              Interview[]
+  createdAt               DateTime    @default(now())
+  updatedAt               DateTime    @updatedAt
 }
 
 model Interview {
   id                 String    @id @default(uuid())
   applicantId        String
   applicant          Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
-  interviewers       String    // 쉼표로 구분된 면접관 이메일 목록
+  interviewers       String    // 쉼표로 구분된 면접관 이메일/이름 목록
   scheduledTime      DateTime?
   duration           Int       @default(60) // 분 단위
   meetingLink        String?
+  location           String?   // 면접 장소
   status             String    @default("PROPOSED") // PROPOSED, CONFIRMED, COMPLETED, CANCELLED
   proposedSlots      String?   // 지원자가 선택할 수 있도록 제안된 시간 슬롯 (JSON string)
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+}
+
+model Site {
+  id           String            @id @default(uuid())
+  name         String            // 현장명 (예: 평택 P5 RC공사 2공구)
+  location     String            // 위치 (예: 경기도 평택시)
+  pmName       String            // 담당 PM
+  pmContact    String?           // 담당 PM 연락처
+  requirements SiteRequirement[]
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+}
+
+model SiteRequirement {
+  id            String   @id @default(uuid())
+  siteId        String
+  site          Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  jobRole       String   // 직무 (공사, 안전, 공무, 품질, 기타 등)
+  requiredCount Int      // 필요 인원
+  currentCount  Int      @default(0) // 채용 인원
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
 }
