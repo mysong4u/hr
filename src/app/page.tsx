@@ -1,15 +1,47 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar, { TabType } from '@/components/Sidebar';
 import Header from '@/components/Header';
 import DashboardView from '@/components/DashboardView';
 import ApplicantsView from '@/components/ApplicantsView';
 import EvaluationsView from '@/components/EvaluationsView';
+import LoginView from '@/components/LoginView';
+import UserProfileModal from '@/components/UserProfileModal';
 import { Settings, Shield, Building2, Bell, CheckCircle2 } from 'lucide-react';
 
-export default function SmartATSApp() {
+interface UserData {
+  id: string;
+  name: string;
+  department: string;
+  role: string;
+}
+
+export default function TaeilATSApp() {
   const [currentTab, setCurrentTab] = useState<TabType>('dashboard');
+  const [currentUser, setCurrentUser] = useState<UserData | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
+  // Load user session from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('taeil_user');
+      if (saved) {
+        setCurrentUser(JSON.parse(saved));
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsInitializing(false);
+    }
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem('taeil_user');
+    setCurrentUser(null);
+    setIsProfileModalOpen(false);
+  };
 
   const getTabTitle = (tab: TabType) => {
     switch (tab) {
@@ -32,6 +64,23 @@ export default function SmartATSApp() {
     }
   };
 
+  // While checking local storage session
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs text-slate-400 font-medium">태일채용시스템 불러오는 중...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If not logged in, show Login Screen (Requires Name & Password 1111)
+  if (!currentUser) {
+    return <LoginView onLoginSuccess={(user) => setCurrentUser(user)} />;
+  }
+
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-950 font-sans text-slate-800 dark:text-slate-100 overflow-hidden">
       {/* Sidebar Navigation */}
@@ -40,7 +89,11 @@ export default function SmartATSApp() {
       {/* Main Container */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Top Header */}
-        <Header title={getTabTitle(currentTab)} />
+        <Header
+          title={getTabTitle(currentTab)}
+          currentUser={currentUser}
+          onOpenProfileModal={() => setIsProfileModalOpen(true)}
+        />
 
         {/* Scrollable Content View */}
         <main className="flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-950/50 pb-16">
@@ -53,6 +106,16 @@ export default function SmartATSApp() {
           {currentTab === 'settings' && <SettingsView />}
         </main>
       </div>
+
+      {/* User Profile & Allowed Users Management Modal */}
+      {isProfileModalOpen && (
+        <UserProfileModal
+          currentUser={currentUser}
+          onClose={() => setIsProfileModalOpen(false)}
+          onUpdateCurrentUser={(updated) => setCurrentUser(updated)}
+          onLogout={handleLogout}
+        />
+      )}
     </div>
   );
 }

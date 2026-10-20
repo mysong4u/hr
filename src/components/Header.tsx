@@ -13,9 +13,16 @@ interface Notification {
 
 interface HeaderProps {
   title: string;
+  currentUser?: {
+    id: string;
+    name: string;
+    department: string;
+    role: string;
+  } | null;
+  onOpenProfileModal?: () => void;
 }
 
-export default function Header({ title }: HeaderProps) {
+export default function Header({ title, currentUser, onOpenProfileModal }: HeaderProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
 
@@ -122,16 +129,24 @@ export default function Header({ title }: HeaderProps) {
           )}
         </div>
 
-        {/* User Info */}
-        <div className="flex items-center space-x-3 pl-3 border-l border-slate-200 dark:border-slate-800">
-          <div className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 font-semibold text-sm">
-            김
+        {/* User Info (Clickable for editing profile and managing allowed users) */}
+        <button
+          onClick={onOpenProfileModal}
+          className="flex items-center space-x-3 pl-3 border-l border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 p-1.5 rounded-2xl transition-all cursor-pointer group text-left"
+          title="사용자 정보 수정 및 진입 권한 관리"
+        >
+          <div className="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform shadow-xs">
+            {currentUser?.name ? currentUser.name.charAt(0) : '김'}
           </div>
-          <div className="text-left">
-            <div className="text-sm font-bold text-slate-800 dark:text-slate-100">김담당 님</div>
-            <div className="text-[11px] text-slate-400 font-medium">인사채용팀</div>
+          <div>
+            <div className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1">
+              <span>{currentUser?.name ? (currentUser.name.endsWith('님') ? currentUser.name : `${currentUser.name} 님`) : '김담당 님'}</span>
+            </div>
+            <div className="text-[11px] text-slate-400 font-medium">
+              {currentUser?.department || '인사채용팀'}
+            </div>
           </div>
-        </div>
+        </button>
       </div>
     </header>
   );
