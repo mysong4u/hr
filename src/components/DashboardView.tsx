@@ -35,11 +35,11 @@ interface Site {
   pmName: string;
   pmContact: string | null;
   status?: string | null;
+  createdAt: string | Date;
   requirements: SiteRequirement[];
 }
 
 const AVAILABLE_YEARS = ['2025년', '2026년', '2027년', '2028년', '2029년', '2030년'];
-const AVAILABLE_HALVES = ['상반기', '하반기', '전체'];
 
 const STATUS_OPTIONS = [
   { value: '진행중', label: '진행중', color: 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 border-blue-200/60' },
@@ -57,9 +57,8 @@ export default function DashboardView() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAddSiteModalOpen, setIsAddSiteModalOpen] = useState(false);
 
-  // Year Selection State (Default: 2026년 하반기)
+  // Year Selection State (Default: 2026년)
   const [selectedYear, setSelectedYear] = useState('2026년');
-  const [selectedHalf, setSelectedHalf] = useState('하반기');
   const [isYearDropdownOpen, setIsYearDropdownOpen] = useState(false);
   const yearDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -68,18 +67,25 @@ export default function DashboardView() {
   const [editLocation, setEditLocation] = useState('');
   const [editPmName, setEditPmName] = useState('');
   const [editStatus, setEditStatus] = useState('진행중');
+  const [editCreatedAt, setEditCreatedAt] = useState('');
   const [editRequirements, setEditRequirements] = useState<SiteRequirement[]>([]);
   const [modifiedBy, setModifiedBy] = useState('김민수 PM');
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null);
 
-  // New Site form
+  // New Site form (Default date based on today or current year)
+  const getTodayDateString = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  };
+
   const [newSiteForm, setNewSiteForm] = useState({
     name: '',
     location: '',
     pmName: '',
     status: '진행중',
+    createdAt: getTodayDateString(),
   });
 
   // Close dropdown on outside click
@@ -111,15 +117,23 @@ export default function DashboardView() {
     fetchSites();
   }, []);
 
-  // Aggregates
-  const totalSitesCount = sites.length;
+  // Filter sites strictly by the selected registration year (createdAt)
+  const selectedYearNumber = parseInt(selectedYear, 10);
+  const filteredSites = sites.filter((site) => {
+    if (!site.createdAt) return true;
+    const siteYear = new Date(site.createdAt).getFullYear();
+    return siteYear === selectedYearNumber;
+  });
+
+  // Aggregates based on filteredSites for the selected year
+  const totalSitesCount = filteredSites.length;
   let totalRequired = 0;
   let totalCurrent = 0;
 
-  // Job role aggregates
+  // Job role aggregates for filtered sites
   const roleMap: Record<string, { required: number; current: number }> = {};
 
-  sites.forEach((site) => {
+  filteredSites.forEach((site) => {
     site.requirements?.forEach((req) => {
       totalRequired += req.requiredCount;
       totalCurrent += req.currentCount;
@@ -134,11 +148,11 @@ export default function DashboardView() {
 
   const totalRate = totalRequired > 0 ? ((totalCurrent / totalRequired) * 100).toFixed(1) : '0';
 
-  // Site fulfillment rates
+  // Site fulfillment rates for filtered sites
   let completedCount = 0;
   let inProgressCount = 0;
 
-  sites.forEach((s) => {
+  filteredSites.forEach((s) => {
     const sReq = s.requirements?.reduce((acc, r) => acc + r.requiredCount, 0) || 0;
     const sCur = s.requirements?.reduce((acc, r) => acc + r.currentCount, 0) || 0;
     if (s.status === '충원완료' || (sReq > 0 && sCur >= sReq)) {
@@ -159,6 +173,10 @@ export default function DashboardView() {
     const curTotal = site.requirements?.reduce((acc, r) => acc + r.currentCount, 0) || 0;
     const defaultStatus = reqTotal > 0 && curTotal >= reqTotal ? '충원완료' : '진행중';
     setEditStatus(site.status || defaultStatus);
+
+    // Registration date in YYYY-MM-DD
+    const dateStr = site.createdAt ? new Date(site.createdAt).toISOString().split('T')[0] : getTodayDateString();
+    setEditCreatedAt(dateStr);
 
     setModifiedBy(site.pmName || '현장 PM');
     setEditRequirements(
@@ -187,6 +205,7 @@ export default function DashboardView() {
           location: editLocation.trim(),
           pmName: editPmName.trim(),
           status: editStatus,
+          createdAt: editCreatedAt ? new Date(editCreatedAt).toISOString() : undefined,
           requirements: editRequirements,
           modifiedBy,
         }),
@@ -196,7 +215,7 @@ export default function DashboardView() {
         setIsEditModalOpen(false);
         await fetchSites();
         setSaveSuccessNotice(
-          `"${editName}" 현장 정보(현장명, 위치, 담당PM, 진행상태, 필요인원)가 성공적으로 저장되었습니다. (수정자: ${modifiedBy} / 방금 전)`
+          `"${editName}" 현장 정보(현장명, 위치, 담당PM, 진행상태, 등록일, 인원현황)가 성공적으로 저장되었습니다.`
         );
         setTimeout(() => setSaveSuccessNotice(null), 8000);
       } else {
@@ -262,13 +281,20 @@ export default function DashboardView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...newSiteForm,
+          createdAt: newSiteForm.createdAt ? new Date(newSiteForm.createdAt).toISOString() : new Date().toISOString(),
           requirements: defaultRoles,
         }),
       });
       if (res.ok) {
         setIsAddSiteModalOpen(false);
-        setNewSiteForm({ name: '', location: '', pmName: '', status: '진행중' });
-        fetchSites();
+        setNewSiteForm({
+          name: '',
+          location: '',
+          pmName: '',
+          status: '진행중',
+          createdAt: getTodayDateString(),
+        });
+        await fetchSites();
         setSaveSuccessNotice(`신규 현장 "${newSiteForm.name}"이(가) 등록되었습니다.`);
         setTimeout(() => setSaveSuccessNotice(null), 6000);
       }
@@ -297,6 +323,13 @@ export default function DashboardView() {
     );
   };
 
+  const formatDisplayDate = (dateVal: string | Date | undefined) => {
+    if (!dateVal) return '-';
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return '-';
+    return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+  };
+
   return (
     <div className="p-8 space-y-8 max-w-7xl mx-auto">
       {/* Title & Description */}
@@ -310,17 +343,15 @@ export default function DashboardView() {
 
         {/* Action Controls: Year Selector & Add Site Button */}
         <div className="flex items-center gap-3">
-          {/* Custom Year & Period Selector Dropdown */}
+          {/* Custom Year Selector Dropdown (2025년 ~ 2030년) */}
           <div className="relative" ref={yearDropdownRef}>
             <button
               onClick={() => setIsYearDropdownOpen(!isYearDropdownOpen)}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-              title="운영 연도 및 기간 선택"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              title="운영 연도 선택"
             >
               <Calendar className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              <span>
-                {selectedYear} {selectedHalf}
-              </span>
+              <span>📅 {selectedYear}</span>
               <ChevronDown
                 className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
                   isYearDropdownOpen ? 'rotate-180' : ''
@@ -330,62 +361,34 @@ export default function DashboardView() {
 
             {/* Dropdown Popover */}
             {isYearDropdownOpen && (
-              <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-3.5 z-30 animate-in fade-in zoom-in-95 duration-100 space-y-3">
-                <div>
-                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-1 flex items-center justify-between">
-                    <span>기준 연도 선택</span>
-                    <span className="text-blue-600 dark:text-blue-400 font-semibold">{selectedYear}</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {AVAILABLE_YEARS.map((year) => {
-                      const isSelected = selectedYear === year;
-                      return (
-                        <button
-                          key={year}
-                          onClick={() => setSelectedYear(year)}
-                          className={`py-2 px-2.5 rounded-xl text-xs font-bold text-center transition-all cursor-pointer ${
-                            isSelected
-                              ? 'bg-blue-600 text-white shadow-xs shadow-blue-500/30'
-                              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                          }`}
-                        >
-                          {year}
-                        </button>
-                      );
-                    })}
-                  </div>
+              <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-2.5 z-30 animate-in fade-in zoom-in-95 duration-100 space-y-2">
+                <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1 flex items-center justify-between">
+                  <span>기준 연도 선택</span>
+                  <span className="text-blue-600 dark:text-blue-400 font-semibold">{selectedYear}</span>
                 </div>
-
-                <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-1 flex items-center justify-between">
-                    <span>반기 구분</span>
-                    <span className="text-slate-600 dark:text-slate-400 font-semibold">{selectedHalf}</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {AVAILABLE_HALVES.map((half) => {
-                      const isSelected = selectedHalf === half;
-                      return (
-                        <button
-                          key={half}
-                          onClick={() => {
-                            setSelectedHalf(half);
-                            setIsYearDropdownOpen(false);
-                          }}
-                          className={`py-1.5 px-2 rounded-xl text-xs font-semibold text-center transition-all cursor-pointer ${
-                            isSelected
-                              ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900'
-                              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                          }`}
-                        >
-                          {half}
-                        </button>
-                      );
-                    })}
-                  </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {AVAILABLE_YEARS.map((year) => {
+                    const isSelected = selectedYear === year;
+                    return (
+                      <button
+                        key={year}
+                        onClick={() => {
+                          setSelectedYear(year);
+                          setIsYearDropdownOpen(false);
+                        }}
+                        className={`py-2 px-3 rounded-xl text-xs font-bold text-center transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-blue-600 text-white shadow-xs shadow-blue-500/30'
+                            : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        {year}
+                      </button>
+                    );
+                  })}
                 </div>
-
-                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-400 text-center">
-                  선택한 기간의 필요 인원 데이터가 대시보드에 반영됩니다.
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-400 text-center px-1">
+                  등록일을 기준으로 {selectedYear} 현장이 조회됩니다.
                 </div>
               </div>
             )}
@@ -415,7 +418,7 @@ export default function DashboardView() {
         </div>
       )}
 
-      {/* KPI Stats Cards */}
+      {/* KPI Stats Cards (Filtered by Selected Year) */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
         <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center space-x-4">
           <div className="w-13 h-13 rounded-2xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 flex items-center justify-center shrink-0">
@@ -465,13 +468,13 @@ export default function DashboardView() {
         </div>
       </div>
 
-      {/* Middle Section: Progress Chart & Job Role Distribution */}
+      {/* Middle Section: Progress Chart & Job Role Distribution (Filtered by Selected Year) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Card: Fulfillment Donut Status */}
         <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col justify-between">
           <div>
             <h3 className="text-base font-bold text-slate-800 dark:text-white mb-4">
-              현장별 충원율 현황 ({selectedYear} {selectedHalf})
+              현장별 충원율 현황 ({selectedYear})
             </h3>
             <div className="flex items-center justify-center py-6">
               <div className="relative w-40 h-40 flex items-center justify-center">
@@ -521,7 +524,7 @@ export default function DashboardView() {
         {/* Right Card: Job Role Breakdown Bars */}
         <div className="lg:col-span-2 p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-bold text-slate-800 dark:text-white">직무별 필요 인원 현황</h3>
+            <h3 className="text-base font-bold text-slate-800 dark:text-white">직무별 필요 인원 현황 ({selectedYear})</h3>
             <div className="flex items-center gap-4 text-xs">
               <span className="flex items-center gap-1.5 text-slate-500">
                 <span className="w-2.5 h-2.5 rounded-sm bg-blue-600" /> 필요 인원
@@ -533,47 +536,55 @@ export default function DashboardView() {
           </div>
 
           <div className="space-y-4 pt-2">
-            {Object.entries(roleMap).map(([role, val]) => {
-              const maxScale = 40;
-              const reqPct = Math.min(100, (val.required / maxScale) * 100);
-              const curPct = Math.min(100, (val.current / maxScale) * 100);
-              const rate = val.required > 0 ? Math.round((val.current / val.required) * 100) : 0;
+            {Object.keys(roleMap).length === 0 ? (
+              <div className="py-10 text-center text-slate-400 text-xs">
+                {selectedYear}에 등록된 직무 인원 데이터가 없습니다.
+              </div>
+            ) : (
+              Object.entries(roleMap).map(([role, val]) => {
+                const maxScale = Math.max(40, ...Object.values(roleMap).map((m) => m.required));
+                const reqPct = Math.min(100, (val.required / maxScale) * 100);
+                const curPct = Math.min(100, (val.current / maxScale) * 100);
+                const rate = val.required > 0 ? Math.round((val.current / val.required) * 100) : 0;
 
-              return (
-                <div key={role} className="space-y-1.5 text-xs">
-                  <div className="flex items-center justify-between font-semibold">
-                    <span className="text-slate-700 dark:text-slate-200 w-16">{role}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-slate-400">채용 {val.current}명 / 필요 {val.required}명</span>
-                      <span className="w-12 text-right font-bold text-blue-600 dark:text-blue-400">{rate}%</span>
+                return (
+                  <div key={role} className="space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between font-semibold">
+                      <span className="text-slate-700 dark:text-slate-200 w-16">{role}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400">채용 {val.current}명 / 필요 {val.required}명</span>
+                        <span className="w-12 text-right font-bold text-blue-600 dark:text-blue-400">{rate}%</span>
+                      </div>
+                    </div>
+                    <div className="h-3 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex relative">
+                      <div
+                        className="h-full bg-blue-600/80 rounded-full absolute left-0 top-0 transition-all duration-500"
+                        style={{ width: `${reqPct}%` }}
+                      />
+                      <div
+                        className="h-full bg-emerald-500 rounded-full absolute left-0 top-0 transition-all duration-500 z-10"
+                        style={{ width: `${curPct}%` }}
+                      />
                     </div>
                   </div>
-                  <div className="h-3 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex relative">
-                    <div
-                      className="h-full bg-blue-600/80 rounded-full absolute left-0 top-0 transition-all duration-500"
-                      style={{ width: `${reqPct}%` }}
-                    />
-                    <div
-                      className="h-full bg-emerald-500 rounded-full absolute left-0 top-0 transition-all duration-500 z-10"
-                      style={{ width: `${curPct}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
       </div>
 
-      {/* Bottom Table: Sites List */}
+      {/* Bottom Table: Sites List (Filtered by Selected Year) */}
       <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-hidden">
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div>
-            <h3 className="text-base font-bold text-slate-800 dark:text-white">현장별 현황</h3>
-            <p className="text-xs text-slate-400 mt-0.5">상세보기 버튼을 눌러 현장 정보, 진행상태 및 필요인원을 수정하거나 현장을 삭제할 수 있습니다.</p>
+            <h3 className="text-base font-bold text-slate-800 dark:text-white">
+              현장별 현황 <span className="text-blue-600 dark:text-blue-400">({selectedYear} 등록 현장)</span>
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">상세보기 버튼을 눌러 현장 정보, 등록일, 진행상태 및 필요인원을 수정하거나 현장을 삭제할 수 있습니다.</p>
           </div>
           <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-            총 {sites.length}개 현장 운영 중
+            총 {filteredSites.length}개 현장 운영 중
           </span>
         </div>
 
@@ -594,14 +605,14 @@ export default function DashboardView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 font-medium">
-              {sites.length === 0 ? (
+              {filteredSites.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="py-12 text-center text-slate-400 text-sm">
-                    등록된 현장이 없습니다. [현장 추가] 버튼을 눌러 새 현장을 등록하세요.
+                    {selectedYear}에 등록된 현장이 없습니다. [현장 추가] 버튼을 눌러 새 현장을 등록하거나 다른 연도를 선택하세요.
                   </td>
                 </tr>
               ) : (
-                sites.map((site, index) => {
+                filteredSites.map((site, index) => {
                   const reqTotal = site.requirements?.reduce((acc, r) => acc + r.requiredCount, 0) || 0;
                   const curTotal = site.requirements?.reduce((acc, r) => acc + r.currentCount, 0) || 0;
                   const remTotal = Math.max(0, reqTotal - curTotal);
@@ -612,9 +623,14 @@ export default function DashboardView() {
                     <tr key={site.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
                       <td className="py-4 px-6 text-slate-400 text-xs">{index + 1}</td>
                       <td className="py-4 px-6 font-bold text-slate-800 dark:text-white">
-                        <div className="flex items-center gap-2">
-                          <Building2 className="w-4 h-4 text-blue-600 shrink-0" />
-                          <span>{site.name}</span>
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <Building2 className="w-4 h-4 text-blue-600 shrink-0" />
+                            <span>{site.name}</span>
+                          </div>
+                          <div className="text-[11px] font-normal text-slate-400">
+                            등록일: {formatDisplayDate(site.createdAt)}
+                          </div>
                         </div>
                       </td>
                       <td className="py-4 px-6 text-slate-500 text-xs">
@@ -674,7 +690,7 @@ export default function DashboardView() {
                   현장 상세 및 관리
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  현장명, 위치, 담당PM, 진행상태 및 직무별 인원을 수정하거나 현장을 삭제할 수 있습니다.
+                  현장명, 위치, 담당PM, 진행상태, 등록일 및 직무별 인원을 수정하거나 현장을 삭제할 수 있습니다.
                 </p>
               </div>
               <button
@@ -685,7 +701,7 @@ export default function DashboardView() {
               </button>
             </div>
 
-            {/* Form Fields: Name, Location, PM, Status */}
+            {/* Form Fields: Name, Location, PM, Status, Date */}
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -745,17 +761,29 @@ export default function DashboardView() {
                     ))}
                   </select>
                 </div>
-              </div>
 
-              <div>
-                <label className="text-xs font-bold text-slate-500 mb-1 block">수정 작업자 (알림용)</label>
-                <input
-                  type="text"
-                  value={modifiedBy}
-                  onChange={(e) => setModifiedBy(e.target.value)}
-                  placeholder="예: 김민수 PM"
-                  className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 focus:outline-none"
-                />
+                <div>
+                  <label className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-1 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-blue-600" /> 등록 일자 (기준 연도 반영)
+                  </label>
+                  <input
+                    type="date"
+                    value={editCreatedAt}
+                    onChange={(e) => setEditCreatedAt(e.target.value)}
+                    className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 focus:outline-none cursor-pointer"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-500 mb-1 block">수정 작업자 (알림용)</label>
+                  <input
+                    type="text"
+                    value={modifiedBy}
+                    onChange={(e) => setModifiedBy(e.target.value)}
+                    placeholder="예: 김민수 PM"
+                    className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white font-medium focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 focus:outline-none"
+                  />
+                </div>
               </div>
 
               {/* Requirements Table */}
@@ -825,11 +853,11 @@ export default function DashboardView() {
 
               <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl text-xs text-slate-500 flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
-                <span>수정 완료 시 인사팀 대시보드에 실시간 수정 알림이 전송됩니다.</span>
+                <span>수정 완료 시 인사팀 대시보드에 실시간 알림이 전송됩니다.</span>
               </div>
             </div>
 
-            {/* Modal Bottom Actions: Delete Button on Left, Cancel & Save on Right */}
+            {/* Modal Bottom Actions: Delete Button on Left, Cancel & '저장' on Right */}
             <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800">
               <button
                 type="button"
@@ -854,9 +882,9 @@ export default function DashboardView() {
                   type="button"
                   onClick={handleSaveEdit}
                   disabled={isDeleting || isSaving}
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20 cursor-pointer disabled:opacity-50"
+                  className="px-6 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20 cursor-pointer disabled:opacity-50"
                 >
-                  {isSaving ? '저장 중...' : '저장 및 알림 전송'}
+                  {isSaving ? '저장 중...' : '저장'}
                 </button>
               </div>
             </div>
@@ -931,6 +959,16 @@ export default function DashboardView() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-600 dark:text-slate-400 block mb-1">등록 일자</label>
+                <input
+                  type="date"
+                  value={newSiteForm.createdAt}
+                  onChange={(e) => setNewSiteForm({ ...newSiteForm, createdAt: e.target.value })}
+                  className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600 font-medium cursor-pointer"
+                />
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">

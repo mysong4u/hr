@@ -1,15 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url);
+    const yearParam = searchParams.get('year');
+
+    let where: any = {};
+    if (yearParam) {
+      const year = parseInt(yearParam, 10);
+      if (!isNaN(year)) {
+        const startOfYear = new Date(year, 0, 1);
+        const endOfYear = new Date(year + 1, 0, 1);
+        where.createdAt = {
+          gte: startOfYear,
+          lt: endOfYear,
+        };
+      }
+    }
+
     const sites = await prisma.site.findMany({
+      where,
       include: {
         requirements: {
           orderBy: { createdAt: 'asc' },
         },
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
     });
     return NextResponse.json(sites);
   } catch (error) {
@@ -21,7 +38,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, location, pmName, pmContact, status, requirements } = body;
+    const { name, location, pmName, pmContact, status, createdAt, requirements } = body;
 
     if (!name || !location) {
       return NextResponse.json({ error: '현장명과 위치는 필수입니다.' }, { status: 400 });
@@ -34,6 +51,7 @@ export async function POST(request: NextRequest) {
         pmName: pmName || '담당 PM',
         pmContact: pmContact || '',
         status: status || '진행중',
+        createdAt: createdAt ? new Date(createdAt) : new Date(),
         requirements: {
           create: Array.isArray(requirements)
             ? requirements.map((req: any) => ({
@@ -57,7 +75,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { siteId, name, location, pmName, pmContact, status, requirements, modifiedBy } = body;
+    const { siteId, name, location, pmName, pmContact, status, createdAt, requirements, modifiedBy } = body;
 
     if (!siteId) {
       return NextResponse.json({ error: 'Site ID is required' }, { status: 400 });
@@ -93,6 +111,9 @@ export async function PUT(request: NextRequest) {
     if (pmName !== undefined) updateData.pmName = pmName;
     if (pmContact !== undefined) updateData.pmContact = pmContact;
     if (status !== undefined) updateData.status = status;
+    if (createdAt !== undefined) {
+      updateData.createdAt = new Date(createdAt);
+    }
 
     if (Object.keys(updateData).length > 0) {
       await prisma.site.update({
@@ -101,7 +122,7 @@ export async function PUT(request: NextRequest) {
       });
     }
 
-    // Create Notification according to requirement (Page 15 in PDF)
+    // Create Notification
     const now = new Date();
     const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const modifier = modifiedBy || pmName || site.pmName || '현장 PM';
@@ -110,7 +131,7 @@ export async function PUT(request: NextRequest) {
     await prisma.notification.create({
       data: {
         title: '현장 정보 수정 알림',
-        message: `${siteTitle} 현장의 정보(인원/현황)가 수정되었습니다. (수정자: ${modifier} / ${formattedDate})`,
+        message: `${siteTitle} 현장 정보가 수정되었습니다. (수정자: ${modifier} / ${formattedDate})`,
       },
     });
 
