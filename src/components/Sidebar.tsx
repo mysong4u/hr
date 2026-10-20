@@ -34,8 +34,8 @@ export default function Sidebar({ currentTab, onSelectTab }: SidebarProps) {
     <aside className="w-64 bg-[#1E293B] text-slate-200 flex flex-col shrink-0 min-h-screen border-r border-slate-700/50 shadow-xl select-none">
       {/* Brand Header */}
       <div className="p-6 border-b border-slate-700/60 flex items-center space-x-3">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-400 flex items-center justify-center shadow-lg shadow-blue-500/20">
-          <Sparkles className="w-6 h-6 text-white" />
+        <div className="w-10 h-10 rounded-xl bg-white p-1 flex items-center justify-center shadow-md shadow-black/20 shrink-0 overflow-hidden">
+          <img src="/logo.png" alt="태일씨앤티 로고" className="w-full h-full object-contain" />
         </div>
         <div>
           <div className="text-lg font-black tracking-tight text-white flex items-center gap-1">
