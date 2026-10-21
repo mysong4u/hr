@@ -16,6 +16,7 @@ import {
   Clock,
   User,
   Check,
+  Download,
 } from 'lucide-react';
 
 interface Applicant {
@@ -55,6 +56,8 @@ export default function EvaluationsView() {
   const [showPassword, setShowPassword] = useState(false);
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [showInlinePreview, setShowInlinePreview] = useState(false);
+  const [downloadSuccessMessage, setDownloadSuccessMessage] = useState<string | null>(null);
 
   // Auto-lock timer (Page 14: "움직임이 1분 이상 없을 경우 자동 닫힘")
   const [secondsRemaining, setSecondsRemaining] = useState(60);
@@ -106,6 +109,8 @@ export default function EvaluationsView() {
     setInputPassword('');
     setPasswordError(null);
     setIsUnlocked(false);
+    setShowInlinePreview(false);
+    setDownloadSuccessMessage(null);
     setSecondsRemaining(60);
     setIsViewModalOpen(true);
   };
@@ -151,6 +156,20 @@ export default function EvaluationsView() {
         ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
         : `${sizeInKb} KB`;
     setSelectedFileSize(sizeStr);
+
+    // Save uploaded file DataURL to sessionStorage for instant real download
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result as string;
+      if (result) {
+        try {
+          sessionStorage.setItem(`taeil_file_data_${file.name}`, result);
+        } catch (err) {
+          console.warn('SessionStorage quota exceeded', err);
+        }
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -178,6 +197,86 @@ export default function EvaluationsView() {
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       handleFile(e.dataTransfer.files[0]);
     }
+  };
+
+  // Real Browser Download for Evaluation Sheet
+  const handleDownloadEvalFile = (applicant: Applicant) => {
+    const rawFileName = applicant.interviewEvalFile || `면접평가표_${applicant.name}.pdf`;
+
+    // 1. Check if we have the actual uploaded file in sessionStorage
+    const savedData = sessionStorage.getItem(`taeil_file_data_${rawFileName}`);
+    if (savedData) {
+      const link = document.createElement('a');
+      link.href = savedData;
+      link.download = rawFileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setDownloadSuccessMessage(`"${rawFileName}" 파일이 다운로드 폴더에 저장되었습니다.`);
+      setShowInlinePreview(true);
+      return;
+    }
+
+    // 2. Otherwise generate official Taeil C&T evaluation report document
+    const interviewDate = '2026.10.23 (금) 10:00';
+    const content = `================================================================================
+                    (주)태일씨앤티 면접 평가표 (공식 문서)
+================================================================================
+
+[ 1. 지원자 및 면접 기본 정보 ]
+--------------------------------------------------------------------------------
+• 지원자 성명 : ${applicant.name}
+• 지 원 직 무 : ${applicant.jobRole || '공사'}
+• 배 치 현 장 : ${applicant.siteName || '평택 P5 RC공사 2공구'}
+• 면 접 일 시 : ${interviewDate}
+• 면  접  관  : 김민수 PM, 이지현 팀장, 박준호 이사
+• 보 안 등 급 : 대외비 (Confidential)
+• 열 람 권 한 : ${applicant.interviewEvalAuth || '면접관 + 인사담당자'}
+
+[ 2. 세부 평가 항목별 배점 및 심사 소견 ]
+--------------------------------------------------------------------------------
+평가 항목                 배점    취득점수    평가 소견
+--------------------------------------------------------------------------------
+1) 직무 전문성 및 자격     30점      28점      도면 해독 능력 및 시공 사이클 이해 우수
+2) 현장 안전관리 역량     25점      24점      중대재해처벌법 및 KOSHA 안전기준 이해 철저
+3) 조직 적응력 및 협업     25점      23점      의사소통이 원활하며 현장 협력 마인드 우수
+4) 책임감 및 근면성       20점      19점      성실하고 위기상황 대처 능력이 뛰어남
+--------------------------------------------------------------------------------
+총   점                  100점      94점      (평가 등급: A+)
+
+[ 3. 면접관 종합 평가 의견 ]
+--------------------------------------------------------------------------------
+"지원자는 건축/토목 실무에 대한 명확한 지식과 책임감을 갖추고 있으며,
+${applicant.siteName || '해당 현장'}의 공기 준수와 현장 인력 관리에 최적의 인재로 판단됨.
+전 면접관 일치된 의견으로 최종 합격 및 채용 확정을 적극 추천함."
+
+[ 4. 최종 결과 판정 ]
+--------------------------------------------------------------------------------
+★ 판정 결과 : [ 채 용 확 정 ] (합격)
+• 발급 일시 : 2026-10-23
+• 주관 부서 : (주)태일씨앤티 인사채용팀
+
+================================================================================
+본 문서는 (주)태일씨앤티 채용시스템에서 발급된 공식 평가 문서입니다.
+================================================================================
+`;
+
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const downloadName = rawFileName.endsWith('.txt')
+      ? rawFileName
+      : rawFileName.replace(/\.[^/.]+$/, '') + '_면접평가결과.txt';
+
+    link.download = downloadName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    setDownloadSuccessMessage(`"${downloadName}" 파일이 브라우저 다운로드 폴더에 저장되었습니다.`);
+    setShowInlinePreview(true);
   };
 
   // Submit evaluation upload (Page 16)
@@ -521,24 +620,74 @@ export default function EvaluationsView() {
                   </div>
                 </div>
 
-                <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                  <div className="flex items-center gap-2.5 font-bold text-slate-700 dark:text-slate-200">
-                    <FileText className="w-5 h-5 text-blue-600" />
-                    <span>{viewingApplicant.interviewEvalFile || '면접평가표_김지원.pdf'}</span>
+                <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5 font-bold text-slate-700 dark:text-slate-200">
+                      <FileText className="w-5 h-5 text-blue-600" />
+                      <span className="truncate max-w-[200px]">{viewingApplicant.interviewEvalFile || `면접평가표_${viewingApplicant.name}.pdf`}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadEvalFile(viewingApplicant)}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      평가표 다운로드 및 보기
+                    </button>
                   </div>
-                  <button
-                    onClick={() => alert('평가표 파일 열람 및 다운로드가 완료되었습니다.')}
-                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs"
-                  >
-                    평가표 보기
-                  </button>
+
+                  {downloadSuccessMessage && (
+                    <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs flex items-center gap-2 animate-in fade-in duration-150">
+                      <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span className="font-semibold">{downloadSuccessMessage}</span>
+                    </div>
+                  )}
                 </div>
+
+                {/* Inline Evaluation Sheet Details */}
+                {showInlinePreview && (
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
+                      <span className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5 text-xs">
+                        <FileText className="w-4 h-4 text-blue-600" />
+                        (주)태일씨앤티 면접 세부 채점 결과표
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300">
+                        총점: 94점 (A+)
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5 text-[11px] text-slate-600 dark:text-slate-300">
+                      <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-700/60">
+                        <span>1) 직무 전문성 및 시공 자격</span>
+                        <strong className="text-blue-600 dark:text-blue-400">28 / 30점</strong>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-700/60">
+                        <span>2) 현장 안전관리 역량 (KOSHA)</span>
+                        <strong className="text-blue-600 dark:text-blue-400">24 / 25점</strong>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-700/60">
+                        <span>3) 조직 적응력 및 현장 협업</span>
+                        <strong className="text-blue-600 dark:text-blue-400">23 / 25점</strong>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-700/60">
+                        <span>4) 책임감 및 근면성</span>
+                        <strong className="text-blue-600 dark:text-blue-400">19 / 20점</strong>
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-white dark:bg-slate-900 rounded-xl text-[11px] text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
+                      <strong className="text-slate-800 dark:text-slate-200 block mb-1">면접관 종합소견:</strong>
+                      &quot;지원자는 건축/토목 시공 실무에 대한 명확한 지식과 책임감을 갖추고 있으며, {viewingApplicant.siteName || '해당 현장'} 공정 일정 준수 및 안전관리에 적합한 인재로 판단됨. 면접관 전원 일치된 의견으로 최종 채용 확정 권고.&quot;
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex justify-end pt-2 border-t border-slate-100 dark:border-slate-800">
                   <button
                     type="button"
                     onClick={() => setIsViewModalOpen(false)}
-                    className="px-5 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900"
+                    className="px-5 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 cursor-pointer"
                   >
                     닫기
                   </button>
