@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Sidebar, { TabType } from '@/components/Sidebar';
 import Header from '@/components/Header';
 import DashboardView from '@/components/DashboardView';
+import SiteManagementView from '@/components/SiteManagementView';
 import ApplicantsView from '@/components/ApplicantsView';
 import EvaluationsView from '@/components/EvaluationsView';
 import LoginView from '@/components/LoginView';
@@ -46,15 +47,11 @@ export default function TaeilATSApp() {
   const getTabTitle = (tab: TabType) => {
     switch (tab) {
       case 'dashboard':
-        return '현장별 필요인원 관리 대시보드';
+        return '종합 채용 및 현장 현황 대시보드';
       case 'applicants':
-        return '지원자 목록 및 관리';
-      case 'pipeline':
-        return '채용 절차 파이프라인';
+        return '지원자 관리';
       case 'sites':
-        return '전체 현장별 필요 인원 및 PM 관리';
-      case 'interviews':
-        return '면접 일정 및 카카오/문자 공유';
+        return '현장별 인원 관리';
       case 'evaluations':
         return '면접 및 인성검사 평가표 보안 관리';
       case 'settings':
@@ -99,9 +96,7 @@ export default function TaeilATSApp() {
         <main className="flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-950/50 pb-16">
           {currentTab === 'dashboard' && <DashboardView />}
           {currentTab === 'applicants' && <ApplicantsView />}
-          {currentTab === 'pipeline' && <ApplicantsView />}
-          {currentTab === 'sites' && <DashboardView />}
-          {currentTab === 'interviews' && <ApplicantsView />}
+          {currentTab === 'sites' && <SiteManagementView />}
           {currentTab === 'evaluations' && <EvaluationsView />}
           {currentTab === 'settings' && <SettingsView />}
         </main>
@@ -150,7 +145,7 @@ function SettingsView() {
               <input
                 type="text"
                 disabled
-                value="건설사업본부 인사채용팀"
+                value="인사채용팀"
                 className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border font-bold text-slate-700 dark:text-slate-200"
               />
             </div>
@@ -164,11 +159,11 @@ function SettingsView() {
             <span>외부 서비스 연동 설정</span>
           </div>
           <p className="text-xs text-slate-500">
-            문자천사(Send1004) 및 카카오 알림톡 바로가기 연동이 활성화되어 있습니다.
+            문자천사(munja1004.co.kr) 및 카카오 알림톡 바로가기 연동이 활성화되어 있습니다.
           </p>
           <div className="pt-2 flex items-center gap-3 text-xs">
             <span className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 font-bold border border-emerald-200 flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4" /> 문자천사(Send1004) 연동 정상
+              <CheckCircle2 className="w-4 h-4" /> 문자천사(munja1004.co.kr) 연동 정상
             </span>
             <span className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 font-bold border border-amber-200 flex items-center gap-1.5">
               <CheckCircle2 className="w-4 h-4" /> 카카오톡 공유 연동 정상

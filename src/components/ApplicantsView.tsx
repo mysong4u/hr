@@ -2,38 +2,36 @@
 
 import React, { useState, useEffect } from 'react';
 import {
+  Users,
   Search,
   Filter,
   Download,
-  Upload,
   Plus,
   FileText,
-  Mail,
-  Phone,
+  Upload,
   Calendar,
-  Building,
-  CheckCircle,
-  Clock,
+  Sparkles,
   ExternalLink,
-  Copy,
-  Share2,
-  Trash2,
-  X,
-  Lock,
   MessageSquare,
-  AlertCircle,
+  CheckCircle2,
+  Clock,
+  ChevronRight,
+  Shield,
   FileCheck,
-  Check,
+  Send,
+  X,
+  Share2,
+  Copy,
+  AlertCircle,
+  Building2,
+  Trash2,
 } from 'lucide-react';
 import { exportApplicantsToExcel, getStatusLabel } from '@/lib/excel';
 
 interface Interview {
   id: string;
-  applicantId: string;
   interviewers: string;
   scheduledTime: string | null;
-  duration: number;
-  meetingLink: string | null;
   location: string | null;
   status: string;
 }
@@ -43,37 +41,45 @@ interface Applicant {
   name: string;
   email: string;
   phone: string;
-  resumeUrl: string | null;
-  resumeText: string | null;
+  resumeUrl?: string | null;
+  resumeText?: string | null;
   status: string;
-  aiScore: string | null;
-  aiReason: string | null;
-  applyPath: string | null;
-  joinDate: string | null;
-  jobRole: string | null;
-  siteName: string | null;
-  memo: string | null;
-  personalityTestFile: string | null;
+  aiScore?: string | null;
+  aiReason?: string | null;
+  applyPath?: string | null;
+  joinDate?: string | null;
+  jobRole?: string | null;
+  siteName?: string | null;
+  memo?: string | null;
+  personalityTestFile?: string | null;
   personalityTestPassword?: string | null;
-  interviewEvalFile: string | null;
+  interviewEvalFile?: string | null;
   interviewEvalPassword?: string | null;
   interviewEvalAuth?: string | null;
   createdAt: string;
   interviews: Interview[];
 }
 
+interface SiteItem {
+  id: string;
+  name: string;
+  location?: string;
+}
+
 const PIPELINE_STEPS = [
   { id: 'ALL', label: '전체 지원자', color: 'from-slate-600 to-slate-800' },
   { id: 'APPLIED', label: '1. 이력서 지원', color: 'from-blue-600 to-cyan-500' },
-  { id: 'PERSONALITY_TEST_PENDING', label: '2. 인성검사 진행 중', color: 'from-amber-500 to-orange-500' },
+  { id: 'PERSONALITY_TEST_PENDING', label: '2. 인성검사 진행', color: 'from-amber-500 to-orange-500' },
   { id: 'PERSONALITY_TEST_COMPLETED', label: '3. 인성검사 완료', color: 'from-teal-500 to-emerald-600' },
   { id: 'INTERVIEW_SCHEDULED', label: '4. 면접일자 확정', color: 'from-purple-600 to-indigo-600' },
-  { id: 'ACCEPTED', label: '5. 채용 여부 (합격)', color: 'from-emerald-600 to-green-700' },
-  { id: 'ONBOARDING_SCHEDULED', label: '6. 입문교육 일정', color: 'from-rose-500 to-pink-600' },
+  { id: 'ONBOARDING_SCHEDULED', label: '5. 입문교육 일정', color: 'from-pink-600 to-rose-500' },
+  { id: 'ACCEPTED', label: '채용확정', color: 'from-emerald-600 to-green-700' },
+  { id: 'REJECTED', label: '불합격', color: 'from-rose-600 to-red-700' },
 ];
 
 export default function ApplicantsView() {
   const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [sites, setSites] = useState<SiteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedStatusTab, setSelectedStatusTab] = useState<string>('ALL');
 
@@ -100,7 +106,7 @@ export default function ApplicantsView() {
     email: '',
     applyPath: '사람인',
     jobRole: '공사',
-    siteName: '평택 P5 RC공사 2공구',
+    siteName: '',
     memo: '',
     joinDate: '',
   });
@@ -123,8 +129,24 @@ export default function ApplicantsView() {
     }
   };
 
+  const fetchSites = async () => {
+    try {
+      const res = await fetch('/api/sites');
+      if (res.ok) {
+        const data = await res.json();
+        setSites(data);
+        if (data.length > 0 && !manualForm.siteName) {
+          setManualForm((prev) => ({ ...prev, siteName: data[0].name }));
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load sites:', e);
+    }
+  };
+
   useEffect(() => {
     fetchApplicants();
+    fetchSites();
   }, []);
 
   const showCopyFeedback = (msg: string) => {
@@ -139,8 +161,9 @@ export default function ApplicantsView() {
     PERSONALITY_TEST_PENDING: applicants.filter((a) => a.status === 'PERSONALITY_TEST_PENDING').length,
     PERSONALITY_TEST_COMPLETED: applicants.filter((a) => a.status === 'PERSONALITY_TEST_COMPLETED').length,
     INTERVIEW_SCHEDULED: applicants.filter((a) => a.status === 'INTERVIEW_SCHEDULED').length,
-    ACCEPTED: applicants.filter((a) => a.status === 'ACCEPTED').length,
     ONBOARDING_SCHEDULED: applicants.filter((a) => a.status === 'ONBOARDING_SCHEDULED').length,
+    ACCEPTED: applicants.filter((a) => a.status === 'ACCEPTED').length,
+    REJECTED: applicants.filter((a) => a.status === 'REJECTED').length,
   };
 
   // Filtered List
@@ -172,39 +195,22 @@ export default function ApplicantsView() {
     });
   }
 
-  // Update Status helper
-  const handleUpdateStatus = async (applicantId: string, newStatus: string) => {
+  // Update status handler
+  const handleUpdateStatus = async (applicantId: string, nextStatus: string) => {
     try {
       const res = await fetch(`/api/applicants/${applicantId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({ status: nextStatus }),
       });
       if (res.ok) {
         const updated = await res.json();
         setApplicants((prev) => prev.map((a) => (a.id === applicantId ? updated : a)));
-        if (selectedApplicant?.id === applicantId) {
+        if (selectedApplicant && selectedApplicant.id === applicantId) {
           setSelectedApplicant(updated);
         }
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  // Save Memo
-  const handleSaveMemo = async (applicantId: string) => {
-    try {
-      const res = await fetch(`/api/applicants/${applicantId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memo: editingMemo }),
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        setApplicants((prev) => prev.map((a) => (a.id === applicantId ? updated : a)));
-        setSelectedApplicant(updated);
-        showCopyFeedback('메모가 저장되었습니다.');
+        const label = getStatusLabel(nextStatus);
+        showCopyFeedback(`지원자 상태가 "${label}"(으)로 변경되었습니다.`);
       }
     } catch (e) {
       console.error(e);
@@ -214,8 +220,8 @@ export default function ApplicantsView() {
   // Open external personality test site & auto-update status
   const handlePersonalitySiteRedirect = (app: Applicant) => {
     handleUpdateStatus(app.id, 'PERSONALITY_TEST_PENDING');
-    window.open('https://www.saramin.co.kr/zf_user/personality-test', '_blank');
-    showCopyFeedback('인성검사 사이트로 이동하며 지원자 상태를 "인성검사 진행 중"으로 변경했습니다.');
+    window.open('https://onlinetest.kirbs.re.kr/eKPDI/contents/eflow/', '_blank');
+    showCopyFeedback('인성검사 사이트(kirbs)로 이동하며 지원자 상태를 "인성검사 진행 중"으로 변경했습니다.');
   };
 
   // Submit personality upload
@@ -233,9 +239,10 @@ export default function ApplicantsView() {
       });
       if (res.ok) {
         const updated = await res.json();
-        setApplicants((prev) => prev.map((a) => (a.id === selectedApplicant.id ? updated : a)));
+        setApplicants((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
         setSelectedApplicant(updated);
         setIsPersonalityUploadModalOpen(false);
+        setPersonalityPassword('');
         showCopyFeedback('인성검사 결과표가 등록되었으며 "인성검사 완료" 상태로 전환되었습니다.');
       }
     } catch (e) {
@@ -243,54 +250,81 @@ export default function ApplicantsView() {
     }
   };
 
-  // Copy interview notification SMS (Page 12 in PDF)
-  const handleCopyInterviewSMS = (app: Applicant) => {
-    const interview = app.interviews?.[0];
-    const dateStr = interview?.scheduledTime
-      ? new Date(interview.scheduledTime).toLocaleDateString('ko-KR', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-          weekday: 'short',
-        })
-      : '2026년 10월 23일(금)';
-    const timeStr = interview?.scheduledTime
-      ? new Date(interview.scheduledTime).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-      : '오전 10:00';
+  // Update Memo
+  const handleSaveMemo = async () => {
+    if (!selectedApplicant) return;
+    try {
+      const res = await fetch(`/api/applicants/${selectedApplicant.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memo: editingMemo }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setApplicants((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+        setSelectedApplicant(updated);
+        showCopyFeedback('메모가 저장되었습니다.');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
-    const text = `[태일씨앤티] 면접 일정 안내
-지원자: ${app.name} 님
-일시: ${dateStr} ${timeStr}
-장소: ${interview?.location || '태일씨앤티 본사 회의실'}
-면접관: ${interview?.interviewers || '김민수 PM, 이지현 팀장'}
+  // Format Interview SMS message
+  const handleCopyInterviewSMS = (app: Applicant) => {
+    const interviewDate = app.interviews?.[0]?.scheduledTime
+      ? new Date(app.interviews[0].scheduledTime).toLocaleString('ko-KR')
+      : '2026년 10월 23일(금) 오전 10:00';
+
+    const msg = `[태일씨앤티 면접안내]
+안녕하세요 ${app.name}님, (주)태일씨앤티 채용팀입니다.
+서류전형 합격을 축하드리며 아래와 같이 면접 일정을 안내해 드립니다.
+
+- 지원직무: ${app.jobRole || '공사'}
+- 면접일시: ${interviewDate}
+- 면접장소: ${app.interviews?.[0]?.location || '태일씨앤티 본사 대회의실'}
+- 안내사항: 신분증 지참 및 면접 10분 전 도착 부탁드립니다.
+
 감사합니다.`;
 
-    navigator.clipboard.writeText(text);
+    navigator.clipboard.writeText(msg);
     showCopyFeedback('면접 안내 문자가 클립보드에 복사되었습니다.');
   };
 
-  // Copy onboarding SMS (Page 10 in PDF)
+  // Format Onboarding SMS message (Page 10 in PDF)
   const handleCopyOnboardingSMS = (app: Applicant) => {
-    const dateStr = app.joinDate ? new Date(app.joinDate).toISOString().split('T')[0] : '2026-11-01';
-    const text = `[태일씨앤티] 안녕하세요.
-입문교육 일정이 확정되었습니다.
-일시: ${dateStr} 오전 10:00
-장소: ${app.siteName || '평택 P5 RC공사 2공구'} 현장사무실
-문의: 010-1234-5678
+    const targetDate = app.joinDate
+      ? new Date(app.joinDate).toISOString().split('T')[0]
+      : '2026-11-01';
+
+    const msg = `[태일씨앤티 입문교육 안내]
+안녕하세요 ${app.name}님, (주)태일씨앤티입니다.
+최종 합격을 진심으로 축하드리며, 입문교육 일정을 안내드립니다.
+
+- 일시: ${targetDate} 오전 10:00
+- 장소: ${app.siteName || (sites[0]?.name ?? '평택 P5 RC공사 2공구')} 현장사무실
+- 준비물: 신분증 사본, 통장 사본, 자격증 사본
+
+상세 문의: 010-1234-5678 (인사채용팀)
 감사합니다.`;
 
-    navigator.clipboard.writeText(text);
-    showCopyFeedback('입문교육 문자 내용이 복사되었습니다. 문자천사에 바로 붙여넣기 하실 수 있습니다.');
+    navigator.clipboard.writeText(msg);
+    showCopyFeedback('입문교육 안내 문자가 클립보드에 복사되었습니다.');
   };
 
   // Handle Manual Add
-  const handleCreateManualApplicant = async (e: React.FormEvent) => {
+  const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const assignedSite = manualForm.siteName || (sites[0]?.name ?? '평택 P5 RC공사 2공구');
       const res = await fetch('/api/applicants', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(manualForm),
+        body: JSON.stringify({
+          ...manualForm,
+          siteName: assignedSite,
+          status: 'APPLIED',
+        }),
       });
       if (res.ok) {
         setIsAddModalOpen(false);
@@ -300,39 +334,12 @@ export default function ApplicantsView() {
           email: '',
           applyPath: '사람인',
           jobRole: '공사',
-          siteName: '평택 P5 RC공사 2공구',
+          siteName: sites[0]?.name ?? '',
           memo: '',
           joinDate: '',
         });
         fetchApplicants();
-        showCopyFeedback('지원자가 성공적으로 추가되었습니다.');
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  // Resume Drag & Drop Simulation
-  const handleResumeDrop = async (fileName: string) => {
-    try {
-      const randomName = fileName.replace('.pdf', '').replace('.docx', '');
-      const res = await fetch('/api/applicants', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: randomName.includes('지원') ? '신규지원자' : randomName,
-          phone: '010-5555-7777',
-          email: `${Date.now()}@applicant.com`,
-          applyPath: '이력서 직접접수',
-          jobRole: '공사',
-          siteName: '평택 P5 RC공사 2공구',
-          resumeText: `${fileName} 파일이 정상 업로드되어 자동 파싱 완료되었습니다.`,
-        }),
-      });
-      if (res.ok) {
-        setIsDragUploadModalOpen(false);
-        fetchApplicants();
-        showCopyFeedback(`${fileName} 파일이 성공적으로 접수되어 지원자가 추가되었습니다.`);
+        showCopyFeedback('신규 지원자가 등록되었습니다.');
       }
     } catch (e) {
       console.error(e);
@@ -340,90 +347,56 @@ export default function ApplicantsView() {
   };
 
   return (
-    <div className="p-8 space-y-8 max-w-7xl mx-auto">
-      {/* Toast Feedback */}
+    <div className="p-8 space-y-6 max-w-7xl mx-auto">
+      {/* Toast Notification */}
       {copyNotice && (
-        <div className="fixed top-20 right-8 z-50 bg-slate-900/90 text-white px-5 py-3 rounded-2xl shadow-2xl border border-slate-700 flex items-center gap-3 animate-in fade-in slide-in-from-top-3 duration-150">
-          <CheckCircle className="w-5 h-5 text-emerald-400" />
-          <span className="text-xs font-semibold">{copyNotice}</span>
+        <div className="fixed top-6 right-8 z-50 p-4 bg-slate-900 text-white text-xs font-semibold rounded-2xl shadow-2xl flex items-center gap-2 border border-slate-700 animate-in fade-in slide-in-from-top duration-200">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>{copyNotice}</span>
         </div>
       )}
 
-      {/* Top Section: Title & Pipeline Steps Bar (Page 1 & 6 in PDF) */}
-      <div className="space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">지원자 관리</h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-              현재 진행 중인 채용의 단계별 지원자 수를 확인하고 관리할 수 있습니다.
-            </p>
-          </div>
-          <div className="flex items-center gap-2.5">
+      {/* Top Banner / Pipeline Navigation Cards (Pages 6, 7 in PDF) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+        {PIPELINE_STEPS.map((step) => {
+          const isSelected = selectedStatusTab === step.id;
+          const count = statusCounts[step.id] || 0;
+          return (
             <button
-              onClick={() => exportApplicantsToExcel(filteredApplicants)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 font-semibold text-xs shadow-xs transition-all cursor-pointer"
+              key={step.id}
+              onClick={() => setSelectedStatusTab(step.id)}
+              className={`p-3.5 rounded-2xl border text-left transition-all duration-200 cursor-pointer ${
+                isSelected
+                  ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-500/25 scale-[1.02]'
+                  : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-slate-700 dark:text-slate-200'
+              }`}
             >
-              <Download className="w-4 h-4 text-emerald-600" />
-              엑셀 다운로드
+              <div className="text-[11px] font-bold opacity-80 truncate">{step.label}</div>
+              <div className="text-xl font-black mt-1 flex items-baseline justify-between">
+                <span>{count}명</span>
+                <ChevronRight className={`w-3.5 h-3.5 opacity-60 ${isSelected ? 'translate-x-0.5' : ''}`} />
+              </div>
             </button>
-            <button
-              onClick={() => setIsDragUploadModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 hover:bg-blue-100 font-semibold text-xs shadow-xs transition-all cursor-pointer"
-            >
-              <Upload className="w-4 h-4" />
-              이력서 파일 추가
-            </button>
-            <button
-              onClick={() => setIsAddModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-md shadow-blue-500/20 transition-all cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              지원자 추가
-            </button>
-          </div>
-        </div>
-
-        {/* 6-Step Pipeline Header Buttons (Page 6 in PDF) */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 pt-2">
-          {PIPELINE_STEPS.map((step) => {
-            const count = statusCounts[step.id] || 0;
-            const isSelected = selectedStatusTab === step.id;
-            return (
-              <button
-                key={step.id}
-                onClick={() => setSelectedStatusTab(step.id)}
-                className={`p-3 rounded-2xl border text-left transition-all duration-150 flex flex-col justify-between ${
-                  isSelected
-                    ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-500/20 scale-[1.02]'
-                    : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
-                }`}
-              >
-                <span className={`text-[11px] font-bold truncate ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
-                  {step.label}
-                </span>
-                <span className="text-xl font-black mt-2 tracking-tight">{count}명</span>
-              </button>
-            );
-          })}
-        </div>
+          );
+        })}
       </div>
 
-      {/* Search & Multi-Filters Toolbar (Page 7 & 13 in PDF) */}
-      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-1 items-center gap-3 min-w-[280px]">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="이름, 이메일, 전화번호 검색"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-blue-600"
-            />
-          </div>
+      {/* Controls & Search Bar */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        {/* Search */}
+        <div className="relative flex-1 max-w-md">
+          <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+          <input
+            type="text"
+            placeholder="지원자 이름, 연락처, 이메일 검색..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-blue-600 font-medium"
+          />
         </div>
 
-        <div className="flex items-center gap-3 text-xs">
+        {/* Filters and Actions */}
+        <div className="flex flex-wrap items-center gap-2.5 text-xs">
           {/* Job Role Filter */}
           <select
             value={selectedJobRole}
@@ -435,24 +408,24 @@ export default function ApplicantsView() {
             <option value="안전">안전</option>
             <option value="공무">공무</option>
             <option value="품질">품질</option>
-            <option value="전산">전산</option>
+            <option value="기타">기타</option>
           </select>
 
-          {/* Site Filter */}
+          {/* Site Filter (Dynamically fetched from DB) */}
           <select
             value={selectedSite}
             onChange={(e) => setSelectedSite(e.target.value)}
             className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold focus:outline-blue-600 cursor-pointer"
           >
             <option value="ALL">전체 현장</option>
-            <option value="평택 P5 RC공사 2공구">평택 P5 RC공사 2공구</option>
-            <option value="화성 동탄 신축공사">화성 동탄 신축공사</option>
-            <option value="안산 송도 오피스텔">안산 송도 오피스텔</option>
-            <option value="대전 도안지구 공사">대전 도안지구 공사</option>
-            <option value="김포 한강신도시">김포 한강신도시</option>
+            {sites.map((site) => (
+              <option key={site.id} value={site.name}>
+                {site.name}
+              </option>
+            ))}
           </select>
 
-          {/* Join Date Sort Toggle (Page 13) */}
+          {/* Join Date Sort Toggle */}
           <button
             onClick={() => setSortByJoinDate(!sortByJoinDate)}
             className={`px-3 py-2 rounded-xl border font-semibold transition-colors flex items-center gap-1.5 cursor-pointer ${
@@ -462,7 +435,25 @@ export default function ApplicantsView() {
             }`}
           >
             <Calendar className="w-3.5 h-3.5" />
-            입사일자순 정렬 {sortByJoinDate && '✓'}
+            입사일자순 {sortByJoinDate && '✓'}
+          </button>
+
+          {/* Excel Export */}
+          <button
+            onClick={() => exportApplicantsToExcel(filteredApplicants)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-xs cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" />
+            엑셀 다운로드
+          </button>
+
+          {/* Add Applicant */}
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            지원자 등록
           </button>
         </div>
       </div>
@@ -538,7 +529,9 @@ export default function ApplicantsView() {
                               : app.status === 'INTERVIEW_SCHEDULED'
                               ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400 border border-purple-200'
                               : app.status === 'ACCEPTED'
-                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200'
+                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-300'
+                              : app.status === 'REJECTED'
+                              ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-300'
                               : app.status === 'ONBOARDING_SCHEDULED'
                               ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200'
                               : 'bg-slate-100 text-slate-600'
@@ -548,8 +541,15 @@ export default function ApplicantsView() {
                         </span>
                       </td>
                       <td className="py-4 px-5 text-center">
-                        <button className="px-2.5 py-1 text-slate-500 hover:text-blue-600 font-semibold hover:underline">
-                          상세
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedApplicant(app);
+                            setEditingMemo(app.memo || '');
+                          }}
+                          className="px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold"
+                        >
+                          상세보기
                         </button>
                       </td>
                     </tr>
@@ -561,20 +561,20 @@ export default function ApplicantsView() {
         </div>
       </div>
 
-      {/* Applicant Detail Modal (Pages 8, 9, 10, 12 in PDF) */}
+      {/* Applicant Detail Modal (Pages 8, 9, 10 in PDF) */}
       {selectedApplicant && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-3xl w-full p-8 max-h-[92vh] overflow-y-auto space-y-6 animate-in fade-in zoom-in-95 duration-150">
-            {/* Modal Header */}
-            <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-5">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-black text-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-4xl w-full p-6 space-y-6 max-h-[92vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white font-black text-lg flex items-center justify-center shadow-md shadow-blue-500/20">
                   {selectedApplicant.name.charAt(0)}
                 </div>
                 <div>
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-2">
                     <h3 className="text-xl font-black text-slate-800 dark:text-white">{selectedApplicant.name}</h3>
-                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-200">
                       {selectedApplicant.jobRole || '공사'}
                     </span>
                     <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
@@ -590,23 +590,54 @@ export default function ApplicantsView() {
               </div>
               <button
                 onClick={() => setSelectedApplicant(null)}
-                className="p-1 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white"
+                className="p-1 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
               >
                 <X className="w-6 h-6" />
               </button>
             </div>
 
-            {/* Stepper Pipeline Status Changer (Pages 6 & 8) */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">채용 단계 변경</label>
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+            {/* Stepper Pipeline Status Changer with '채용확정' and '불합격' buttons */}
+            <div className="space-y-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider block">
+                    채용 단계 변경
+                  </label>
+                  <p className="text-[11px] text-slate-400 mt-0.5">단계를 클릭하거나 [채용확정] / [불합격]으로 바로 결정할 수 있습니다.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleUpdateStatus(selectedApplicant.id, 'ACCEPTED')}
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs ${
+                      selectedApplicant.status === 'ACCEPTED'
+                        ? 'bg-emerald-600 text-white ring-2 ring-emerald-400'
+                        : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 hover:bg-emerald-600 hover:text-white'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    채용확정
+                  </button>
+                  <button
+                    onClick={() => handleUpdateStatus(selectedApplicant.id, 'REJECTED')}
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs ${
+                      selectedApplicant.status === 'REJECTED'
+                        ? 'bg-rose-600 text-white ring-2 ring-rose-400'
+                        : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-300 dark:border-rose-800 hover:bg-rose-600 hover:text-white'
+                    }`}
+                  >
+                    <X className="w-4 h-4" />
+                    불합격
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1">
                 {[
                   { id: 'APPLIED', num: '1', title: '이력서 지원' },
                   { id: 'PERSONALITY_TEST_PENDING', num: '2', title: '인성검사 진행' },
                   { id: 'PERSONALITY_TEST_COMPLETED', num: '3', title: '인성검사 완료' },
                   { id: 'INTERVIEW_SCHEDULED', num: '4', title: '면접일자 확정' },
-                  { id: 'ACCEPTED', num: '5', title: '채용 여부' },
-                  { id: 'ONBOARDING_SCHEDULED', num: '6', title: '입문교육 일정' },
+                  { id: 'ONBOARDING_SCHEDULED', num: '5', title: '입문교육 일정' },
                 ].map((st) => {
                   const isActive = selectedApplicant.status === st.id;
                   return (
@@ -616,7 +647,7 @@ export default function ApplicantsView() {
                       className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
                         isActive
                           ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-500/20 font-bold'
-                          : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-400 text-xs'
+                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-400 text-xs'
                       }`}
                     >
                       <div className="text-[10px] opacity-75">{st.num}단계</div>
@@ -627,7 +658,7 @@ export default function ApplicantsView() {
               </div>
             </div>
 
-            {/* Resume & Memo Section (Page 8 in PDF) */}
+            {/* Resume & Memo Section */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Resume Card */}
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-3">
@@ -646,11 +677,11 @@ export default function ApplicantsView() {
                   </button>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200/60 dark:border-slate-800">
-                  {selectedApplicant.resumeText || '이력서_김지원.pdf (첨부파일 정상 파싱됨)'}
+                  {selectedApplicant.resumeText || '이력서 파일이 정상 파싱되었습니다.'}
                 </p>
               </div>
 
-              {/* Memo Box (Page 8: "@님 소개 등 작성") */}
+              {/* Memo Box */}
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-3">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
@@ -658,25 +689,25 @@ export default function ApplicantsView() {
                     <span>지원자 메모 (@추천인 기록)</span>
                   </label>
                   <button
-                    onClick={() => handleSaveMemo(selectedApplicant.id)}
-                    className="px-3 py-1 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700"
+                    onClick={handleSaveMemo}
+                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold"
                   >
                     저장
                   </button>
                 </div>
                 <textarea
-                  rows={3}
                   value={editingMemo}
                   onChange={(e) => setEditingMemo(e.target.value)}
-                  placeholder="@님 소개 등 지원자에 대한 메모를 작성하세요."
-                  className="w-full text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-blue-600"
+                  placeholder="예: @김민수 부장님 지인 소개 / 면접 태도 매우 우수함"
+                  rows={3}
+                  className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-blue-600"
                 />
               </div>
             </div>
 
-            {/* Special Action Sections according to requirements */}
-            <div className="space-y-4 pt-2">
-              {/* 1. Personality Test Actions (Pages 8 & 9 in PDF) */}
+            {/* Workflow Action Steps */}
+            <div className="space-y-4">
+              {/* 1. Personality Test & Result Upload */}
               <div className="p-5 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/60 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -691,14 +722,14 @@ export default function ApplicantsView() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handlePersonalitySiteRedirect(selectedApplicant)}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs"
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
                       인성검사 사이트 이동
                     </button>
                     <button
                       onClick={() => setIsPersonalityUploadModalOpen(true)}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 text-xs font-bold rounded-xl"
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 text-xs font-bold rounded-xl cursor-pointer"
                     >
                       <Upload className="w-3.5 h-3.5" />
                       결과표 등록
@@ -719,24 +750,24 @@ export default function ApplicantsView() {
                 )}
               </div>
 
-              {/* 2. Interview Date & Share via Kakao / SMS (Page 12 in PDF) */}
+              {/* 2. Interview Scheduling & Kakao/SMS Sharing (문자천사 연동) */}
               <div className="p-5 rounded-2xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800/60 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Calendar className="w-5 h-5 text-purple-600" />
                     <div>
                       <h4 className="text-sm font-bold text-purple-900 dark:text-purple-200">
-                        면접일자 확정 & 일정 공유하기
+                        면접 일정 확정 및 알림 전송
                       </h4>
                       <p className="text-xs text-purple-700 dark:text-purple-400">
-                        지원자에게 전달할 면접 일정을 문자 복사 또는 카카오톡으로 공유할 수 있습니다.
+                        면접관 및 지원자에게 카카오톡/문자천사로 확정 알림을 전달합니다.
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleCopyInterviewSMS(selectedApplicant)}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs"
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
                     >
                       <Copy className="w-3.5 h-3.5" />
                       문자 복사
@@ -746,14 +777,14 @@ export default function ApplicantsView() {
                         handleCopyInterviewSMS(selectedApplicant);
                         window.open('https://sharer.kakao.com', '_blank');
                       }}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#FEE500] hover:bg-[#FDD835] text-[#191919] text-xs font-bold rounded-xl shadow-xs"
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#FEE500] hover:bg-[#FDD835] text-[#191919] text-xs font-bold rounded-xl shadow-xs cursor-pointer"
                     >
                       <Share2 className="w-3.5 h-3.5" />
                       카카오톡 공유
                     </button>
                     <button
-                      onClick={() => window.open('https://www.send1004.com', '_blank')}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-white dark:bg-slate-800 border border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 text-xs font-bold rounded-xl"
+                      onClick={() => window.open('https://www.munja1004.co.kr/', '_blank')}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-white dark:bg-slate-800 border border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 text-xs font-bold rounded-xl cursor-pointer"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
                       문자천사 열기
@@ -769,7 +800,7 @@ export default function ApplicantsView() {
                 </div>
               </div>
 
-              {/* 3. Onboarding & Send1004 Integration (Page 10 in PDF) */}
+              {/* 3. Onboarding & Munja1004 Integration */}
               <div className="p-5 rounded-2xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800/60 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -779,21 +810,21 @@ export default function ApplicantsView() {
                         입문교육 일정 안내 (문자천사 연동)
                       </h4>
                       <p className="text-xs text-rose-700 dark:text-rose-400">
-                        문자 내용을 복사하여 문자천사 사이트에서 바로 발송할 수 있습니다.
+                        문자 내용을 복사하여 문자천사(munja1004.co.kr) 사이트에서 바로 발송할 수 있습니다.
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleCopyOnboardingSMS(selectedApplicant)}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-xs"
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
                     >
                       <Copy className="w-3.5 h-3.5" />
                       문자 내용 복사
                     </button>
                     <button
-                      onClick={() => window.open('https://www.send1004.com', '_blank')}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-white dark:bg-slate-800 border border-rose-300 text-rose-700 text-xs font-bold rounded-xl"
+                      onClick={() => window.open('https://www.munja1004.co.kr/', '_blank')}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-white dark:bg-slate-800 border border-rose-300 text-rose-700 text-xs font-bold rounded-xl cursor-pointer"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
                       문자천사 사이트 이동
@@ -802,11 +833,10 @@ export default function ApplicantsView() {
                 </div>
 
                 <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-rose-200/80 text-xs space-y-1 text-slate-700 dark:text-slate-300">
-                  <div className="font-bold text-rose-600">[태일씨앤티] 안녕하세요.</div>
-                  <div>입문교육 일정이 확정되었습니다.</div>
+                  <div className="font-bold text-rose-600">[태일씨앤티] 입문교육 안내</div>
                   <div>일시: {selectedApplicant.joinDate ? new Date(selectedApplicant.joinDate).toISOString().split('T')[0] : '2026-11-01'} 오전 10:00</div>
-                  <div>장소: {selectedApplicant.siteName || '평택 P5 RC공사 2공구'} 현장사무실</div>
-                  <div>문의: 010-1234-5678</div>
+                  <div>장소: {selectedApplicant.siteName || (sites[0]?.name ?? '평택 P5 RC공사 2공구')} 현장사무실</div>
+                  <div>문의: 010-1234-5678 (인사채용팀)</div>
                 </div>
               </div>
             </div>
@@ -821,13 +851,15 @@ export default function ApplicantsView() {
                     fetchApplicants();
                   }
                 }}
-                className="flex items-center gap-1.5 text-xs text-rose-500 hover:text-rose-700 font-semibold"
+                className="flex items-center gap-1.5 text-xs text-rose-600 hover:text-rose-700 font-bold cursor-pointer"
               >
-                <Trash2 className="w-4 h-4" /> 지원자 삭제
+                <Trash2 className="w-4 h-4" />
+                지원자 삭제
               </button>
+
               <button
                 onClick={() => setSelectedApplicant(null)}
-                className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs font-bold"
+                className="px-5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold cursor-pointer"
               >
                 닫기
               </button>
@@ -836,25 +868,81 @@ export default function ApplicantsView() {
         </div>
       )}
 
-      {/* Manual Add Applicant Modal (Page 7 in PDF) */}
+      {/* Personality Test Upload Modal */}
+      {isPersonalityUploadModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="font-bold text-base text-slate-800 dark:text-white">인성검사 결과표 등록</h3>
+              <button onClick={() => setIsPersonalityUploadModalOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <div>
+                <label className="font-bold text-slate-600 dark:text-slate-400 block mb-1">결과표 파일명</label>
+                <input
+                  type="text"
+                  value={personalityFile}
+                  onChange={(e) => setPersonalityFile(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                  열람 비밀번호 (선택 - 보안 잠금용)
+                </label>
+                <input
+                  type="password"
+                  placeholder="미입력 시 비밀번호 없이 열람 가능"
+                  value={personalityPassword}
+                  onChange={(e) => setPersonalityPassword(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  비밀번호를 설정하면 면접평가표 관리 탭에서 비밀번호를 입력해야만 열람할 수 있습니다.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  onClick={() => setIsPersonalityUploadModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={handleSavePersonalityTest}
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-md shadow-amber-500/20"
+                >
+                  등록 및 인성검사 완료 처리
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Add Modal */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 space-y-5 animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="font-bold text-base text-slate-800 dark:text-white">지원자 직접 추가 (소개 등)</h3>
+              <h3 className="font-bold text-base text-slate-800 dark:text-white">신규 지원자 수동 등록</h3>
               <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateManualApplicant} className="space-y-4 text-xs">
+            <form onSubmit={handleManualSubmit} className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="font-bold text-slate-600 dark:text-slate-400 block mb-1">지원자 이름 *</label>
                   <input
                     type="text"
                     required
-                    placeholder="예: 홍길동"
                     value={manualForm.name}
                     onChange={(e) => setManualForm({ ...manualForm, name: e.target.value })}
                     className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
@@ -865,7 +953,7 @@ export default function ApplicantsView() {
                   <input
                     type="text"
                     required
-                    placeholder="010-1234-5678"
+                    placeholder="010-0000-0000"
                     value={manualForm.phone}
                     onChange={(e) => setManualForm({ ...manualForm, phone: e.target.value })}
                     className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
@@ -874,10 +962,10 @@ export default function ApplicantsView() {
               </div>
 
               <div>
-                <label className="font-bold text-slate-600 dark:text-slate-400 block mb-1">이메일</label>
+                <label className="font-bold text-slate-600 dark:text-slate-400 block mb-1">이메일 *</label>
                 <input
                   type="email"
-                  placeholder="user@example.com"
+                  required
                   value={manualForm.email}
                   onChange={(e) => setManualForm({ ...manualForm, email: e.target.value })}
                   className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
@@ -896,10 +984,10 @@ export default function ApplicantsView() {
                     <option value="안전">안전</option>
                     <option value="공무">공무</option>
                     <option value="품질">품질</option>
-                    <option value="전산">전산</option>
                     <option value="기타">기타</option>
                   </select>
                 </div>
+
                 <div>
                   <label className="font-bold text-slate-600 dark:text-slate-400 block mb-1">지원 경로</label>
                   <select
@@ -907,9 +995,9 @@ export default function ApplicantsView() {
                     onChange={(e) => setManualForm({ ...manualForm, applyPath: e.target.value })}
                     className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
                   >
-                    <option value="지인 소개">지인 소개</option>
                     <option value="사람인">사람인</option>
                     <option value="잡코리아">잡코리아</option>
+                    <option value="지인 소개">지인 소개</option>
                     <option value="기타">기타</option>
                   </select>
                 </div>
@@ -922,11 +1010,15 @@ export default function ApplicantsView() {
                   onChange={(e) => setManualForm({ ...manualForm, siteName: e.target.value })}
                   className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
                 >
-                  <option value="평택 P5 RC공사 2공구">평택 P5 RC공사 2공구</option>
-                  <option value="화성 동탄 신축공사">화성 동탄 신축공사</option>
-                  <option value="안산 송도 오피스텔">안산 송도 오피스텔</option>
-                  <option value="대전 도안지구 공사">대전 도안지구 공사</option>
-                  <option value="김포 한강신도시">김포 한강신도시</option>
+                  {sites.length === 0 ? (
+                    <option value="">등록된 현장이 없습니다</option>
+                  ) : (
+                    sites.map((site) => (
+                      <option key={site.id} value={site.name}>
+                        {site.name}
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
 
@@ -941,13 +1033,13 @@ export default function ApplicantsView() {
               </div>
 
               <div>
-                <label className="font-bold text-slate-600 dark:text-slate-400 block mb-1">메모 (@추천인)</label>
-                <input
-                  type="text"
-                  placeholder="예: @본사 김전무님 추천"
+                <label className="font-bold text-slate-600 dark:text-slate-400 block mb-1">지원자 메모 (@추천인 등)</label>
+                <textarea
+                  rows={2}
+                  placeholder="예: @김민수 부장님 지인 소개"
                   value={manualForm.memo}
                   onChange={(e) => setManualForm({ ...manualForm, memo: e.target.value })}
-                  className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
+                  className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
                 />
               </div>
 
@@ -963,120 +1055,10 @@ export default function ApplicantsView() {
                   type="submit"
                   className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20"
                 >
-                  등록하기
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Drag & Drop Resume Upload Modal (Page 6 in PDF) */}
-      {isDragUploadModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-6 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="font-bold text-base text-slate-800 dark:text-white">이력서 파일 추가</h3>
-              <button onClick={() => setIsDragUploadModalOpen(false)} className="text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                const file = e.dataTransfer.files[0];
-                if (file) handleResumeDrop(file.name);
-              }}
-              className="border-2 border-dashed border-blue-400/60 dark:border-blue-600/60 rounded-2xl p-8 text-center flex flex-col items-center justify-center space-y-3 bg-blue-50/30 dark:bg-blue-950/20 hover:bg-blue-50/60 transition-all cursor-pointer"
-            >
-              <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 flex items-center justify-center">
-                <Upload className="w-6 h-6" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                  이력서 파일을 여기에 드래그하거나
-                </p>
-                <p className="text-[11px] text-slate-400 mt-1">파일 선택 버튼을 클릭하세요 (PDF, DOCX)</p>
-              </div>
-              <label className="px-4 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 cursor-pointer">
-                파일 선택
-                <input
-                  type="file"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) handleResumeDrop(f.name);
-                  }}
-                />
-              </label>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Personality Test Upload Modal (Page 9 in PDF) */}
-      {isPersonalityUploadModalOpen && selectedApplicant && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-6 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="font-bold text-base text-slate-800 dark:text-white">인성평가 결과표 등록</h3>
-              <button
-                onClick={() => setIsPersonalityUploadModalOpen(false)}
-                className="text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4 text-xs">
-              <div className="border-2 border-dashed border-amber-300 rounded-2xl p-6 text-center space-y-2 bg-amber-50/20">
-                <FileCheck className="w-8 h-8 text-amber-500 mx-auto" />
-                <p className="font-bold text-slate-700 dark:text-slate-200">
-                  결과표를 여기에 드래그하거나 선택하세요
-                </p>
-                <input
-                  type="text"
-                  value={personalityFile}
-                  onChange={(e) => setPersonalityFile(e.target.value)}
-                  className="w-full text-center text-xs font-semibold px-3 py-1.5 border rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-white"
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  🔒 열람 비밀번호 설정 (선택 사항)
-                </label>
-                <input
-                  type="password"
-                  placeholder="임원/담당자 전용 열람 비밀번호"
-                  value={personalityPassword}
-                  onChange={(e) => setPersonalityPassword(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
-                />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  비밀번호를 설정하면 권한이 있는 담당자만 결과표를 열람할 수 있습니다.
-                </p>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsPersonalityUploadModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                >
-                  취소
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSavePersonalityTest}
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-md shadow-amber-500/20"
-                >
                   등록 완료
                 </button>
               </div>
-            </div>
+            </form>
           </div>
         </div>
       )}
