@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Users,
   Search,
@@ -98,6 +98,8 @@ export default function ApplicantsView() {
   // Personality Upload form
   const [personalityFile, setPersonalityFile] = useState<string>('인성평가결과표.pdf');
   const [personalityPassword, setPersonalityPassword] = useState<string>('');
+  const [isPersonalityDragging, setIsPersonalityDragging] = useState(false);
+  const personalityFileInputRef = useRef<HTMLInputElement>(null);
 
   // Manual Add Form
   const [manualForm, setManualForm] = useState({
@@ -873,21 +875,85 @@ export default function ApplicantsView() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-6 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="font-bold text-base text-slate-800 dark:text-white">인성검사 결과표 등록</h3>
-              <button onClick={() => setIsPersonalityUploadModalOpen(false)} className="text-slate-400 hover:text-white">
+              <h3 className="font-bold text-base text-slate-800 dark:text-white flex items-center gap-2">
+                <Upload className="w-5 h-5 text-amber-600" />
+                인성검사 결과표 등록
+              </h3>
+              <button onClick={() => setIsPersonalityUploadModalOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="space-y-4 text-xs">
               <div>
-                <label className="font-bold text-slate-600 dark:text-slate-400 block mb-1">결과표 파일명</label>
+                <label className="font-bold text-slate-600 dark:text-slate-400 block mb-1">결과표 파일 첨부</label>
                 <input
-                  type="text"
-                  value={personalityFile}
-                  onChange={(e) => setPersonalityFile(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
+                  ref={personalityFileInputRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx,.hwp,.hwpx,.xlsx,.xls,.png,.jpg,.jpeg"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      setPersonalityFile(e.target.files[0].name);
+                    }
+                  }}
+                  className="hidden"
                 />
+
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsPersonalityDragging(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    setIsPersonalityDragging(false);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsPersonalityDragging(false);
+                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                      setPersonalityFile(e.dataTransfer.files[0].name);
+                    }
+                  }}
+                  onClick={() => personalityFileInputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-xl p-4 text-center space-y-2 cursor-pointer transition-all ${
+                    isPersonalityDragging
+                      ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/40'
+                      : 'border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                  }`}
+                >
+                  <Upload className="w-6 h-6 text-amber-600 mx-auto" />
+                  <p className="font-semibold text-slate-700 dark:text-slate-200">
+                    파일을 드래그하거나 아래 버튼을 클릭하세요
+                  </p>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      personalityFileInputRef.current?.click();
+                    }}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <Upload className="w-3 h-3" />
+                    파일 선택
+                  </button>
+
+                  {personalityFile && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="p-2 bg-white dark:bg-slate-800 rounded-lg border border-amber-200 text-xs flex items-center justify-between mt-2"
+                    >
+                      <span className="font-bold text-slate-800 dark:text-white truncate">{personalityFile}</span>
+                      <button
+                        type="button"
+                        onClick={() => setPersonalityFile('')}
+                        className="text-slate-400 hover:text-rose-500 ml-2"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div>
@@ -915,7 +981,7 @@ export default function ApplicantsView() {
                 </button>
                 <button
                   onClick={handleSavePersonalityTest}
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-md shadow-amber-500/20"
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-md shadow-amber-500/20 cursor-pointer"
                 >
                   등록 및 인성검사 완료 처리
                 </button>

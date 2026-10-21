@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   FileLock2,
   Lock,
@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Clock,
   User,
+  Check,
 } from 'lucide-react';
 
 interface Applicant {
@@ -38,7 +39,11 @@ export default function EvaluationsView() {
   // Upload modal state
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [targetApplicantId, setTargetApplicantId] = useState<string>('');
-  const [evalFile, setEvalFile] = useState<string>('면접평가표.pdf');
+  const [evalFile, setEvalFile] = useState<string>('');
+  const [selectedFileSize, setSelectedFileSize] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [evalPassword, setEvalPassword] = useState<string>('');
   const [evalPasswordConfirm, setEvalPasswordConfirm] = useState<string>('');
   const [selectedAuth, setSelectedAuth] = useState<string>('면접관 + 인사담당자');
@@ -60,6 +65,9 @@ export default function EvaluationsView() {
       if (res.ok) {
         const data = await res.json();
         setApplicants(data);
+        if (data.length > 0 && !targetApplicantId) {
+          setTargetApplicantId(data[0].id);
+        }
       }
     } catch (e) {
       console.error(e);
@@ -107,7 +115,6 @@ export default function EvaluationsView() {
     if (!viewingApplicant) return;
 
     if (!viewingApplicant.interviewEvalPassword && !viewingApplicant.personalityTestPassword) {
-      // If no password set, unlock directly
       setIsUnlocked(true);
       return;
     }
@@ -135,10 +142,52 @@ export default function EvaluationsView() {
     }
   };
 
+  // File Handlers for Dropzone and File Input
+  const handleFile = (file: File) => {
+    setEvalFile(file.name);
+    const sizeInKb = (file.size / 1024).toFixed(1);
+    const sizeStr =
+      file.size > 1024 * 1024
+        ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+        : `${sizeInKb} KB`;
+    setSelectedFileSize(sizeStr);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      handleFile(e.target.files[0]);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFile(e.dataTransfer.files[0]);
+    }
+  };
+
   // Submit evaluation upload (Page 16)
   const handleSaveUpload = async () => {
     if (!targetApplicantId) {
       alert('대상 지원자를 선택해주세요.');
+      return;
+    }
+    if (!evalFile.trim()) {
+      alert('면접평가표 파일을 드래그하거나 [파일 선택] 버튼으로 선택해주세요.');
       return;
     }
     if (evalPassword && evalPassword !== evalPasswordConfirm) {
@@ -159,13 +208,19 @@ export default function EvaluationsView() {
 
       if (res.ok) {
         setIsUploadModalOpen(false);
+        setEvalFile('');
+        setSelectedFileSize(null);
         setEvalPassword('');
         setEvalPasswordConfirm('');
         fetchApplicants();
-        alert('평가표 파일 및 보안 설정이 완료되었습니다.');
+        alert('면접평가표 파일 및 보안 설정이 완료되었습니다.');
+      } else {
+        const errorData = await res.json();
+        alert(errorData.error || '저장 중 오류가 발생했습니다.');
       }
     } catch (e) {
       console.error(e);
+      alert('서버 통신 중 오류가 발생했습니다.');
     }
   };
 
@@ -176,164 +231,241 @@ export default function EvaluationsView() {
         <div>
           <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight flex items-center gap-2.5">
             <ShieldCheck className="w-7 h-7 text-blue-600" />
-            인성검사 및 면접평가표 보안 관리
+            면접 및 인성검사 평가표 보안 관리
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            임의 비밀번호 설정 및 권한 관리를 통해 인가된 인사팀 및 면접관만 평가표를 열람할 수 있습니다.
+            기밀 보안 평가표를 암호화하여 보관하며, 열람 시 비밀번호 검증 및 1분 무응답 시 자동 닫힘 정책이 적용됩니다.
           </p>
         </div>
-        <div>
-          <button
-            onClick={() => {
-              if (applicants.length > 0) {
-                setTargetApplicantId(applicants[0].id);
-              }
-              setIsUploadModalOpen(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-md shadow-blue-500/20 cursor-pointer"
-          >
-            <Upload className="w-4 h-4" />
-            + 평가표 업로드
-          </button>
-        </div>
+
+        <button
+          onClick={() => {
+            if (applicants.length > 0 && !targetApplicantId) {
+              setTargetApplicantId(applicants[0].id);
+            }
+            setEvalFile('');
+            setSelectedFileSize(null);
+            setIsUploadModalOpen(true);
+          }}
+          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md shadow-blue-500/20 text-xs transition-all cursor-pointer"
+        >
+          <Upload className="w-4 h-4" />
+          평가표 등록 / 보안 설정
+        </button>
       </div>
 
       {/* Security Info Banner (Page 14 in PDF) */}
-      <div className="p-4 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-800 text-xs text-indigo-900 dark:text-indigo-200 flex items-start gap-3 shadow-xs">
-        <Lock className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-        <div className="leading-relaxed">
-          <span className="font-bold">보안 지침:</span> 인성검사 및 면접평가표는 사내 기밀 정보로 취급됩니다. 비밀번호를
-          보유한 권한자만 열람 가능하며, 열람 화면에서 1분 동안 조작이 없을 시 개인정보 보호를 위해 자동으로 창이
-          닫힙니다.
+      <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/80 flex items-start gap-3 text-xs text-amber-800 dark:text-amber-300">
+        <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+        <div className="space-y-1">
+          <p>
+            <span className="font-bold">보안 지침:</span> 인성검사 및 면접평가표는 사내 기밀 정보로 취급됩니다. 비밀번호를 설정하여 인가된 권한자만 열람할 수 있도록 관리하십시오.
+          </p>
+          <p className="text-amber-700/80 dark:text-amber-400">
+            • 평가표 열람 중 1분 이상 마우스 및 키보드 입력이 없으면 화면이 자동으로 잠기고 닫힙니다.
+          </p>
         </div>
       </div>
 
-      {/* Evaluations Table (Page 14 in PDF) */}
+      {/* Evaluation Records Table */}
       <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-hidden">
+        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <h3 className="text-base font-bold text-slate-800 dark:text-white">지원자별 평가표 및 보안 상태 목록</h3>
+          <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+            총 {applicants.length}명 관리 중
+          </span>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs text-slate-600 dark:text-slate-300">
             <thead className="bg-slate-50 dark:bg-slate-800/60 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200/60 dark:border-slate-800">
               <tr>
                 <th className="py-3.5 px-6">No</th>
                 <th className="py-3.5 px-6">지원자명</th>
-                <th className="py-3.5 px-6">직무</th>
-                <th className="py-3.5 px-6">평가표 파일</th>
-                <th className="py-3.5 px-6 text-center">비밀번호</th>
-                <th className="py-3.5 px-6">열람 권한</th>
-                <th className="py-3.5 px-6">등록일</th>
-                <th className="py-3.5 px-6 text-center">상태</th>
-                <th className="py-3.5 px-6 text-center">관리</th>
+                <th className="py-3.5 px-6">직무 / 현장</th>
+                <th className="py-3.5 px-6">면접평가표 파일</th>
+                <th className="py-3.5 px-6 text-center">면접평가표 보안</th>
+                <th className="py-3.5 px-6">인성검사 결과표</th>
+                <th className="py-3.5 px-6 text-center">인성검사 보안</th>
+                <th className="py-3.5 px-6 text-center">열람 권한</th>
+                <th className="py-3.5 px-6 text-center">평가표 열람</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-              {applicants.map((app, index) => {
-                const hasFile = !!(app.interviewEvalFile || app.personalityTestFile);
-                const fileName = app.interviewEvalFile || app.personalityTestFile || '평가표_미등록.pdf';
-                const hasPassword = !!(app.interviewEvalPassword || app.personalityTestPassword);
+              {applicants.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                    등록된 지원자가 없습니다.
+                  </td>
+                </tr>
+              ) : (
+                applicants.map((app, idx) => {
+                  const hasInterviewFile = !!app.interviewEvalFile;
+                  const isInterviewLocked = !!app.interviewEvalPassword;
+                  const hasPersonalityFile = !!app.personalityTestFile;
+                  const isPersonalityLocked = !!app.personalityTestPassword;
 
-                return (
-                  <tr key={app.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="py-4 px-6 text-slate-400">{index + 1}</td>
-                    <td className="py-4 px-6 font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 flex items-center justify-center text-[10px] font-bold">
-                        {app.name.charAt(0)}
-                      </div>
-                      {app.name}
-                    </td>
-                    <td className="py-4 px-6 font-semibold">{app.jobRole || '공사'}</td>
-                    <td className="py-4 px-6 text-blue-600 dark:text-blue-400 font-semibold flex items-center gap-1.5">
-                      <FileText className="w-3.5 h-3.5" />
-                      {fileName}
-                    </td>
-                    <td className="py-4 px-6 text-center font-mono text-slate-400">
-                      {hasPassword ? '••••••••' : '미설정'}
-                    </td>
-                    <td className="py-4 px-6 text-slate-500 font-medium">{app.interviewEvalAuth || '면접관 + 인사팀'}</td>
-                    <td className="py-4 px-6 text-slate-400">
-                      {app.createdAt ? new Date(app.createdAt).toISOString().split('T')[0] : '-'}
-                    </td>
-                    <td className="py-4 px-6 text-center">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          hasFile
-                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200'
-                            : 'bg-slate-100 text-slate-500'
-                        }`}
-                      >
-                        {hasFile ? '열람 가능' : '미등록'}
-                      </span>
-                    </td>
-                    <td className="py-4 px-6 text-center">
-                      <button
-                        onClick={() => handleOpenView(app)}
-                        className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 font-bold text-xs"
-                      >
-                        보기
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+                  return (
+                    <tr key={app.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                      <td className="py-4 px-6 text-slate-400">{idx + 1}</td>
+                      <td className="py-4 px-6 font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 flex items-center justify-center text-[10px] font-bold">
+                          {app.name.charAt(0)}
+                        </div>
+                        {app.name}
+                      </td>
+                      <td className="py-4 px-6">
+                        <span className="font-semibold text-slate-700 dark:text-slate-200">{app.jobRole || '공사'}</span>
+                        <span className="text-slate-400 text-[11px] block">{app.siteName || '현장 미정'}</span>
+                      </td>
+
+                      {/* Interview Eval File */}
+                      <td className="py-4 px-6">
+                        {hasInterviewFile ? (
+                          <div className="flex items-center gap-1.5 text-blue-600 font-semibold truncate max-w-[150px]">
+                            <FileText className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate">{app.interviewEvalFile}</span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic">미등록</span>
+                        )}
+                      </td>
+
+                      {/* Interview Security status */}
+                      <td className="py-4 px-6 text-center">
+                        {isInterviewLocked ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-600 border border-rose-200">
+                            <Lock className="w-3 h-3" /> 잠금 설정
+                          </span>
+                        ) : hasInterviewFile ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                            <Unlock className="w-3 h-3" /> 일반 공개
+                          </span>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )}
+                      </td>
+
+                      {/* Personality Test File */}
+                      <td className="py-4 px-6">
+                        {hasPersonalityFile ? (
+                          <div className="flex items-center gap-1.5 text-amber-600 font-semibold truncate max-w-[150px]">
+                            <FileText className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate">{app.personalityTestFile}</span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic">미등록</span>
+                        )}
+                      </td>
+
+                      {/* Personality Security status */}
+                      <td className="py-4 px-6 text-center">
+                        {isPersonalityLocked ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-600 border border-rose-200">
+                            <Lock className="w-3 h-3" /> 잠금 설정
+                          </span>
+                        ) : hasPersonalityFile ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                            <Unlock className="w-3 h-3" /> 일반 공개
+                          </span>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )}
+                      </td>
+
+                      {/* Authority */}
+                      <td className="py-4 px-6 text-center">
+                        <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[11px] text-slate-600 dark:text-slate-400 font-medium">
+                          {app.interviewEvalAuth || '면접관 + 인사담당자'}
+                        </span>
+                      </td>
+
+                      {/* View Action */}
+                      <td className="py-4 px-6 text-center">
+                        {hasInterviewFile || hasPersonalityFile ? (
+                          <button
+                            onClick={() => handleOpenView(app)}
+                            className="px-3 py-1 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 font-bold hover:bg-blue-600 hover:text-white transition-all cursor-pointer"
+                          >
+                            열람하기
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setTargetApplicantId(app.id);
+                              setEvalFile('');
+                              setSelectedFileSize(null);
+                              setIsUploadModalOpen(true);
+                            }}
+                            className="px-3 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 text-xs font-semibold cursor-pointer"
+                          >
+                            + 등록
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Password Prompt & View Modal (Page 17 & 14 in PDF) */}
+      {/* View Prompt Modal (Pages 15 & 17 in PDF) */}
       {isViewModalOpen && viewingApplicant && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-6 space-y-6 animate-in fade-in duration-150">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="font-black text-base text-slate-800 dark:text-white flex items-center gap-2">
-                <Lock className="w-5 h-5 text-blue-600" />
-                면접평가표 열람
-              </h3>
-              <button
-                onClick={() => setIsViewModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-white"
-              >
+              <div className="flex items-center gap-2 font-bold text-slate-800 dark:text-white">
+                <FileLock2 className="w-5 h-5 text-blue-600" />
+                <span>면접평가표 보안 열람</span>
+              </div>
+              <button onClick={() => setIsViewModalOpen(false)} className="text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {!isUnlocked ? (
+              // Password Prompt State (Page 15 in PDF)
               <div className="space-y-4 text-xs">
-                <p className="text-slate-500 dark:text-slate-400">
-                  설정된 비밀번호를 입력하여 <strong>{viewingApplicant.name}</strong> 님의 평가표를 열람할 수 있습니다.
-                </p>
+                <div className="text-center py-4 space-y-2">
+                  <div className="w-14 h-14 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-600 flex items-center justify-center mx-auto">
+                    <Lock className="w-7 h-7" />
+                  </div>
+                  <h4 className="font-bold text-slate-800 dark:text-white text-sm">
+                    {viewingApplicant.name} 지원자의 평가표
+                  </h4>
+                  <p className="text-slate-400">
+                    본 문서는 기밀 자료로 비밀번호를 입력해야 열람할 수 있습니다.
+                  </p>
+                </div>
 
                 <div className="space-y-1.5">
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block">비밀번호를 입력하세요</label>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block">비밀번호 입력</label>
                   <div className="relative">
                     <input
                       type={showPassword ? 'text' : 'password'}
+                      placeholder="설정된 비밀번호를 입력하세요"
                       value={inputPassword}
                       onChange={(e) => setInputPassword(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') handleVerifyPassword();
                       }}
-                      placeholder="비밀번호 입력"
-                      className="w-full pl-3.5 pr-10 py-2.5 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600 font-mono text-sm"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
                     >
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
-                  {passwordError && <p className="text-rose-500 font-bold mt-1 text-[11px]">{passwordError}</p>}
+                  {passwordError && <p className="text-rose-500 font-semibold text-[11px] mt-1">{passwordError}</p>}
                 </div>
 
-                <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl space-y-1 text-slate-400 text-[11px]">
-                  <p className="font-semibold text-slate-600 dark:text-slate-300">• 안내사항</p>
-                  <p>• 비밀번호는 업로드 시 설정한 비밀번호입니다.</p>
-                  <p>• 허가된 사용자만 열람할 수 있습니다.</p>
-                  <p>• 잘못된 비밀번호를 5회 입력할 경우 접근이 제한될 수 있습니다.</p>
-                </div>
-
-                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
                   <button
                     type="button"
                     onClick={() => setIsViewModalOpen(false)}
@@ -417,13 +549,16 @@ export default function EvaluationsView() {
         </div>
       )}
 
-      {/* Upload Evaluation Sheet Modal (Page 16 in PDF) */}
+      {/* Upload Evaluation Sheet Modal with Real Drag & Drop and File Input */}
       {isUploadModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 space-y-5 animate-in fade-in duration-150">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="font-bold text-base text-slate-800 dark:text-white">면접평가표 파일 업로드 및 보안 설정</h3>
-              <button onClick={() => setIsUploadModalOpen(false)} className="text-slate-400 hover:text-white">
+              <h3 className="font-bold text-base text-slate-800 dark:text-white flex items-center gap-2">
+                <Upload className="w-5 h-5 text-blue-600" />
+                면접평가표 파일 업로드 및 보안 설정
+              </h3>
+              <button onClick={() => setIsUploadModalOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -435,7 +570,7 @@ export default function EvaluationsView() {
                 <select
                   value={targetApplicantId}
                   onChange={(e) => setTargetApplicantId(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
+                  className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600 cursor-pointer"
                 >
                   {applicants.map((a) => (
                     <option key={a.id} value={a.id}>
@@ -445,20 +580,90 @@ export default function EvaluationsView() {
                 </select>
               </div>
 
-              {/* 1. File Upload Dropzone */}
+              {/* 1. Real File Upload Dropzone */}
               <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">1. 면접평가표 파일</label>
-                <div className="border-2 border-dashed border-blue-300 dark:border-blue-700 rounded-2xl p-5 text-center space-y-2 bg-blue-50/20">
-                  <FileText className="w-7 h-7 text-blue-600 mx-auto" />
-                  <p className="font-semibold text-slate-700 dark:text-slate-200">
-                    파일을 드래그하여 업로드하거나 파일 선택 버튼을 클릭하세요
-                  </p>
-                  <input
-                    type="text"
-                    value={evalFile}
-                    onChange={(e) => setEvalFile(e.target.value)}
-                    className="w-full text-center text-xs font-semibold px-3 py-1.5 border rounded-lg bg-white dark:bg-slate-800"
-                  />
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  1. 면접평가표 파일 첨부 <span className="text-rose-500">*</span>
+                </label>
+
+                {/* Hidden Real File Input */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx,.hwp,.hwpx,.xlsx,.xls,.png,.jpg,.jpeg"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+
+                {/* Drag and Drop Container */}
+                <div
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-2xl p-6 text-center space-y-3 cursor-pointer transition-all duration-200 ${
+                    isDragging
+                      ? 'border-blue-600 bg-blue-100/60 dark:bg-blue-950/60 scale-[1.01]'
+                      : 'border-blue-300 dark:border-blue-700 bg-blue-50/20 hover:bg-blue-50/50 dark:hover:bg-blue-950/30'
+                  }`}
+                >
+                  <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-900/50 text-blue-600 flex items-center justify-center mx-auto shadow-xs">
+                    <Upload className="w-6 h-6" />
+                  </div>
+
+                  <div>
+                    <p className="font-bold text-slate-800 dark:text-white text-sm">
+                      {isDragging ? '파일을 여기에 놓아주세요!' : '파일을 마우스로 끌어다 놓으세요 (드래그 & 드롭)'}
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      PDF, HWP, Word, Excel, 이미지 등 지원 (또는 아래 버튼 클릭)
+                    </p>
+                  </div>
+
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        fileInputRef.current?.click();
+                      }}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      파일 선택
+                    </button>
+                  </div>
+
+                  {/* Attached File Indicator */}
+                  {evalFile && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-blue-200 dark:border-slate-700 flex items-center justify-between text-xs mt-3 shadow-xs"
+                    >
+                      <div className="flex items-center gap-2 truncate text-left">
+                        <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                        <div>
+                          <span className="font-bold text-slate-800 dark:text-white truncate block">
+                            {evalFile}
+                          </span>
+                          {selectedFileSize && (
+                            <span className="text-[10px] text-slate-400 block">{selectedFileSize}</span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEvalFile('');
+                          setSelectedFileSize(null);
+                        }}
+                        className="text-slate-400 hover:text-rose-500 p-1 cursor-pointer"
+                        title="파일 취소"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -488,7 +693,7 @@ export default function EvaluationsView() {
                   </div>
                 </div>
                 <p className="text-[10px] text-slate-400">
-                  비밀번호는 면접평가표를 열람할 때 필요합니다. 반드시 안전한 비밀번호를 설정하세요.
+                  비밀번호를 설정하면 열람할 때 암호 확인을 거치며, 미입력 시 비밀번호 없이 열람됩니다.
                 </p>
               </div>
 
@@ -498,7 +703,7 @@ export default function EvaluationsView() {
                 <select
                   value={selectedAuth}
                   onChange={(e) => setSelectedAuth(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white"
+                  className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white cursor-pointer"
                 >
                   <option value="면접관 + 인사담당자">현재 면접관 + 인사담당자</option>
                   <option value="인사담당자 전용">인사담당자 전용</option>
@@ -511,14 +716,14 @@ export default function EvaluationsView() {
                 <button
                   type="button"
                   onClick={() => setIsUploadModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
                 >
                   취소
                 </button>
                 <button
                   type="button"
                   onClick={handleSaveUpload}
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20"
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20 cursor-pointer"
                 >
                   업로드 및 설정 완료
                 </button>
