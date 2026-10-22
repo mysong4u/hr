@@ -1,44 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
 import { prisma } from '@/lib/prisma';
 import mammoth from 'mammoth';
 
-const UPLOADS_DIR = path.resolve(process.cwd(), 'public', 'uploads');
-const MANIFEST_PATH = path.resolve(UPLOADS_DIR, 'manifest.json');
-
-function ensureUploadsDir() {
-  if (!fs.existsSync(UPLOADS_DIR)) {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-  }
-}
-
-function getManifest(): Record<string, any> {
-  ensureUploadsDir();
-  if (fs.existsSync(MANIFEST_PATH)) {
-    try {
-      const data = fs.readFileSync(MANIFEST_PATH, 'utf-8');
-      return JSON.parse(data);
-    } catch {
-      return {};
-    }
-  }
-  return {};
-}
-
-function saveManifest(manifest: Record<string, any>) {
-  ensureUploadsDir();
-  try {
-    fs.writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Failed to save manifest:', err);
+function getMimeType(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case 'pdf':
+      return 'application/pdf';
+    case 'docx':
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    case 'doc':
+      return 'application/msword';
+    case 'xlsx':
+      return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    case 'xls':
+      return 'application/vnd.ms-excel';
+    case 'hwp':
+    case 'hwpx':
+      return 'application/x-hwp';
+    case 'png':
+      return 'image/png';
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'txt':
+      return 'text/plain; charset=utf-8';
+    default:
+      return 'application/octet-stream';
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    ensureUploadsDir();
-
     const formData = await request.formData();
     const file = formData.get('file');
     const applicantId = (formData.get('applicantId') as string | null) || null;
@@ -54,29 +47,18 @@ export async function POST(request: NextRequest) {
     const arrayBuf = await browserFile.arrayBuffer();
     const buffer = Buffer.from(arrayBuf);
     const originalName = browserFile.name || 'uploaded_file';
-    const timestamp = Date.now();
-    const safeOriginalName = originalName.replace(/[^a-zA-Z0-9가-힣._-]/g, '_');
-    const savedFileName = `${type}_${applicantId || 'temp'}_${timestamp}_${safeOriginalName}`;
-    const filePath = path.join(UPLOADS_DIR, savedFileName);
+    const mimeType = browserFile.type || getMimeType(originalName);
 
-    // 실제 바이너리 파일 디스크 저장
-    fs.writeFileSync(filePath, buffer);
-
-    // Manifest 메타데이터 등록
-    const manifest = getManifest();
-    const manifestKey = applicantId ? `${applicantId}_${type}` : `temp_${timestamp}_${type}`;
-    manifest[manifestKey] = {
-      originalName,
-      savedFileName,
+    // 1. Netlify 서버리스(/var/task 읽기전용) 완벽 대응: Base64 JSON 페이로드 생성
+    const base64Data = buffer.toString('base64');
+    const filePayload = JSON.stringify({
+      name: originalName,
       size: buffer.length,
-      mimeType: browserFile.type || 'application/octet-stream',
-      uploadedAt: new Date().toISOString(),
-      applicantId: applicantId || null,
-      type,
-    };
-    saveManifest(manifest);
+      type: mimeType,
+      data: base64Data,
+    });
 
-    // 텍스트 추출 (docx, txt 등 안전하게 지원)
+    // 2. 텍스트 추출 (Word docx, txt 등)
     let text = '';
     if (type === 'resume') {
       try {
@@ -87,20 +69,19 @@ export async function POST(request: NextRequest) {
         } else if (lowerName.endsWith('.txt')) {
           text = buffer.toString('utf-8');
         } else if (lowerName.endsWith('.pdf')) {
-          // PDF 바이너리 내 인쇄 가능 문자 기반 텍스트 요약
-          const snippet = buffer.toString('utf-8', 0, Math.min(buffer.length, 5000));
+          const snippet = buffer.toString('utf-8', 0, Math.min(buffer.length, 6000));
           const cleaned = snippet.replace(/[^\x20-\x7E\uAC00-\uD7A3\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim();
           if (cleaned.length > 50) {
             text = cleaned.slice(0, 500);
           }
         }
         text = text.replace(/\n+/g, '\n').trim();
-      } catch (extractErr) {
-        console.warn('Text extraction skipped:', extractErr);
+      } catch (err) {
+        console.warn('Text parsing skipped:', err);
       }
     }
 
-    // 지원자 정보 갱신 (applicantId가 전달된 경우)
+    // 3. PostgreSQL DB에 Base64 영구 저장 (TEXT 컬럼은 최대 1GB 지원)
     let updatedApplicant = null;
     if (applicantId && applicantId.trim()) {
       try {
@@ -113,14 +94,14 @@ export async function POST(request: NextRequest) {
             updatedApplicant = await prisma.applicant.update({
               where: { id: applicantId.trim() },
               data: {
-                resumeUrl: originalName,
+                resumeUrl: filePayload,
                 ...(text ? { resumeText: text } : {}),
               },
               include: { interviews: true, job: true },
             });
           } else if (type === 'interviewEval') {
             const updateData: any = {
-              interviewEvalFile: originalName,
+              interviewEvalFile: filePayload,
             };
             if (password !== null && password !== undefined) {
               updateData.interviewEvalPassword = password || null;
@@ -135,7 +116,7 @@ export async function POST(request: NextRequest) {
             });
           } else if (type === 'personality') {
             const updateData: any = {
-              personalityTestFile: originalName,
+              personalityTestFile: filePayload,
             };
             if (password !== null && password !== undefined) {
               updateData.personalityTestPassword = password || null;
@@ -155,8 +136,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       originalName,
-      savedFileName,
-      url: `/uploads/${savedFileName}`,
+      filePayload,
       text: text || `${originalName} 파일이 정상 등록되었습니다.`,
       applicant: updatedApplicant,
     });
@@ -165,7 +145,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: error?.message || '파일 업로드 처리 중 오류가 발생했습니다.',
-        detail: String(error),
       },
       { status: 500 }
     );

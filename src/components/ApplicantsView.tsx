@@ -144,6 +144,21 @@ export default function ApplicantsView() {
     });
   };
 
+  const getDisplayFileName = (value?: string | null, fallback = '') => {
+    if (!value) return fallback;
+    if (value.startsWith('{') && value.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(value);
+        if (parsed.name) return parsed.name;
+      } catch {}
+    }
+    if (value.startsWith('data:')) {
+      const m = value.match(/name=([^;]+)/);
+      if (m) return decodeURIComponent(m[1]);
+    }
+    return value;
+  };
+
   const fetchApplicants = async () => {
     try {
       const res = await fetch('/api/applicants');
@@ -304,7 +319,7 @@ export default function ApplicantsView() {
     const downloadUrl = `/api/files/download?applicantId=${applicant.id}&type=resume`;
     const link = document.createElement('a');
     link.href = downloadUrl;
-    link.download = applicant.resumeUrl || `이력서_${applicant.name}.pdf`;
+    link.download = getDisplayFileName(applicant.resumeUrl, `이력서_${applicant.name}.pdf`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -420,7 +435,7 @@ export default function ApplicantsView() {
           });
           if (uploadRes.ok) {
             const uploadData = await uploadRes.json();
-            initialResumeUrl = uploadData.originalName || manualResumeFile.name;
+            initialResumeUrl = uploadData.filePayload || uploadData.originalName || manualResumeFile.name;
             initialResumeText = uploadData.text;
           }
         } catch (uploadErr) {
@@ -812,8 +827,8 @@ export default function ApplicantsView() {
                     <FileText className="w-4 h-4 text-blue-600" />
                     <span>제출된 이력서</span>
                     {selectedApplicant.resumeUrl && (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 truncate max-w-[150px]">
-                        {selectedApplicant.resumeUrl}
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 truncate max-w-[180px]">
+                        {getDisplayFileName(selectedApplicant.resumeUrl)}
                       </span>
                     )}
                   </div>

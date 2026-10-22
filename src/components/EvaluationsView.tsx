@@ -80,6 +80,21 @@ export default function EvaluationsView() {
     });
   };
 
+  const getDisplayFileName = (value?: string | null, fallback = '') => {
+    if (!value) return fallback;
+    if (value.startsWith('{') && value.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(value);
+        if (parsed.name) return parsed.name;
+      } catch {}
+    }
+    if (value.startsWith('data:')) {
+      const m = value.match(/name=([^;]+)/);
+      if (m) return decodeURIComponent(m[1]);
+    }
+    return value;
+  };
+
   const fetchApplicants = async () => {
     try {
       const res = await fetch('/api/applicants');
@@ -220,7 +235,10 @@ export default function EvaluationsView() {
 
   // Real Browser Download for Evaluation Sheet (Same identical content as uploaded)
   const handleDownloadEvalFile = (applicant: Applicant) => {
-    const rawFileName = applicant.interviewEvalFile || `면접평가표_${applicant.name}.pdf`;
+    const rawFileName = getDisplayFileName(
+      applicant.interviewEvalFile,
+      `면접평가표_${applicant.name}.pdf`
+    );
 
     // 1. Download directly from server storage API (exact identical file uploaded)
     const downloadUrl = `/api/files/download?applicantId=${applicant.id}&type=interviewEval`;
@@ -401,7 +419,7 @@ export default function EvaluationsView() {
                         {hasInterviewFile ? (
                           <div className="flex items-center gap-1.5 text-blue-600 font-semibold truncate max-w-[150px]">
                             <FileText className="w-3.5 h-3.5 shrink-0" />
-                            <span className="truncate">{app.interviewEvalFile}</span>
+                            <span className="truncate">{getDisplayFileName(app.interviewEvalFile)}</span>
                           </div>
                         ) : (
                           <span className="text-slate-400 italic">미등록</span>
@@ -428,7 +446,7 @@ export default function EvaluationsView() {
                         {hasPersonalityFile ? (
                           <div className="flex items-center gap-1.5 text-amber-600 font-semibold truncate max-w-[150px]">
                             <FileText className="w-3.5 h-3.5 shrink-0" />
-                            <span className="truncate">{app.personalityTestFile}</span>
+                            <span className="truncate">{getDisplayFileName(app.personalityTestFile)}</span>
                           </div>
                         ) : (
                           <span className="text-slate-400 italic">미등록</span>
@@ -611,8 +629,13 @@ export default function EvaluationsView() {
                 <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5 font-bold text-slate-700 dark:text-slate-200">
-                      <FileText className="w-5 h-5 text-blue-600" />
-                      <span className="truncate max-w-[200px]">{viewingApplicant.interviewEvalFile || `면접평가표_${viewingApplicant.name}.pdf`}</span>
+                      <FileText className="w-4 h-4 text-blue-600" />
+                      <span className="truncate max-w-[200px]">
+                        {getDisplayFileName(
+                          viewingApplicant.interviewEvalFile,
+                          `면접평가표_${viewingApplicant.name}.pdf`
+                        )}
+                      </span>
                     </div>
                     <button
                       type="button"
