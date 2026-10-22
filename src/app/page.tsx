@@ -159,14 +159,11 @@ function SettingsView() {
             <span>외부 서비스 연동 설정</span>
           </div>
           <p className="text-xs text-slate-500">
-            문자천사(munja1004.co.kr) 및 카카오 알림톡 바로가기 연동이 활성화되어 있습니다.
+            문자천사(munja1004.co.kr) 문자 발송 바로가기 연동이 활성화되어 있습니다.
           </p>
           <div className="pt-2 flex items-center gap-3 text-xs">
             <span className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 font-bold border border-emerald-200 flex items-center gap-1.5">
               <CheckCircle2 className="w-4 h-4" /> 문자천사(munja1004.co.kr) 연동 정상
-            </span>
-            <span className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 font-bold border border-amber-200 flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4" /> 카카오톡 공유 연동 정상
             </span>
           </div>
         </div>

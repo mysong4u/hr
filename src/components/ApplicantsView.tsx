@@ -20,7 +20,6 @@ import {
   FileCheck,
   Send,
   X,
-  Share2,
   Copy,
   AlertCircle,
   Building2,
@@ -933,44 +932,36 @@ export default function ApplicantsView() {
                 )}
               </div>
 
-              {/* 2. Interview Scheduling & Kakao/SMS Sharing (문자천사 연동) */}
+              {/* 2. Interview Scheduling & Munja1004 Integration */}
               <div className="p-5 rounded-2xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800/60 space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="flex items-center gap-2">
-                    <Calendar className="w-5 h-5 text-purple-600" />
+                    <Calendar className="w-5 h-5 text-purple-600 shrink-0" />
                     <div>
                       <h4 className="text-sm font-bold text-purple-900 dark:text-purple-200">
-                        면접 일정 확정 및 알림 전송
+                        면접 일정 확정 및 알림 전송 (문자천사 연동)
                       </h4>
                       <p className="text-xs text-purple-700 dark:text-purple-400">
-                        면접관 및 지원자에게 카카오톡/문자천사로 확정 알림을 전달합니다.
+                        면접 안내 문자를 복사하여 문자천사(munja1004.co.kr) 사이트에서 바로 발송할 수 있습니다.
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
+                      type="button"
                       onClick={() => handleCopyInterviewSMS(selectedApplicant)}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer transition-colors"
                     >
                       <Copy className="w-3.5 h-3.5" />
-                      문자 복사
+                      문자 내용 복사
                     </button>
                     <button
-                      onClick={() => {
-                        handleCopyInterviewSMS(selectedApplicant);
-                        window.open('https://sharer.kakao.com', '_blank');
-                      }}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#FEE500] hover:bg-[#FDD835] text-[#191919] text-xs font-bold rounded-xl shadow-xs cursor-pointer"
-                    >
-                      <Share2 className="w-3.5 h-3.5" />
-                      카카오톡 공유
-                    </button>
-                    <button
+                      type="button"
                       onClick={() => window.open('https://www.munja1004.co.kr/', '_blank')}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-white dark:bg-slate-800 border border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 text-xs font-bold rounded-xl cursor-pointer"
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-white dark:bg-slate-800 border border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-slate-700 text-xs font-bold rounded-xl cursor-pointer transition-colors"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
-                      문자천사 열기
+                      문자천사로 문자 발송
                     </button>
                   </div>
                 </div>
