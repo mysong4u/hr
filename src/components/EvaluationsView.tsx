@@ -33,6 +33,9 @@ interface Applicant {
   interviews?: any[];
 }
 
+// In-memory cache for uploaded file data (handles large files beyond sessionStorage limits)
+const fileDataMemoryCache = new Map<string, string>();
+
 export default function EvaluationsView() {
   const [applicants, setApplicants] = useState<Applicant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,6 +44,7 @@ export default function EvaluationsView() {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [targetApplicantId, setTargetApplicantId] = useState<string>('');
   const [evalFile, setEvalFile] = useState<string>('');
+  const [selectedUploadFile, setSelectedUploadFile] = useState<File | null>(null);
   const [selectedFileSize, setSelectedFileSize] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -61,6 +65,20 @@ export default function EvaluationsView() {
 
   // Auto-lock timer (Page 14: "움직임이 1분 이상 없을 경우 자동 닫힘")
   const [secondsRemaining, setSecondsRemaining] = useState(60);
+
+  const formatInterviewDateTime = (dateStr?: string | null) => {
+    if (!dateStr) return '2026.10.23 (금) 10:00';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return String(dateStr);
+    return d.toLocaleString('ko-KR', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
 
   const fetchApplicants = async () => {
     try {
@@ -149,6 +167,7 @@ export default function EvaluationsView() {
 
   // File Handlers for Dropzone and File Input
   const handleFile = (file: File) => {
+    setSelectedUploadFile(file);
     setEvalFile(file.name);
     const sizeInKb = (file.size / 1024).toFixed(1);
     const sizeStr =
@@ -199,83 +218,20 @@ export default function EvaluationsView() {
     }
   };
 
-  // Real Browser Download for Evaluation Sheet
+  // Real Browser Download for Evaluation Sheet (Same identical content as uploaded)
   const handleDownloadEvalFile = (applicant: Applicant) => {
     const rawFileName = applicant.interviewEvalFile || `면접평가표_${applicant.name}.pdf`;
 
-    // 1. Check if we have the actual uploaded file in sessionStorage
-    const savedData = sessionStorage.getItem(`taeil_file_data_${rawFileName}`);
-    if (savedData) {
-      const link = document.createElement('a');
-      link.href = savedData;
-      link.download = rawFileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setDownloadSuccessMessage(`"${rawFileName}" 파일이 다운로드 폴더에 저장되었습니다.`);
-      setShowInlinePreview(true);
-      return;
-    }
-
-    // 2. Otherwise generate official Taeil C&T evaluation report document
-    const interviewDate = '2026.10.23 (금) 10:00';
-    const content = `================================================================================
-                    (주)태일씨앤티 면접 평가표 (공식 문서)
-================================================================================
-
-[ 1. 지원자 및 면접 기본 정보 ]
---------------------------------------------------------------------------------
-• 지원자 성명 : ${applicant.name}
-• 지 원 직 무 : ${applicant.jobRole || '공사'}
-• 배 치 현 장 : ${applicant.siteName || '평택 P5 RC공사 2공구'}
-• 면 접 일 시 : ${interviewDate}
-• 면  접  관  : 김민수 PM, 이지현 팀장, 박준호 이사
-• 보 안 등 급 : 대외비 (Confidential)
-• 열 람 권 한 : ${applicant.interviewEvalAuth || '면접관 + 인사담당자'}
-
-[ 2. 세부 평가 항목별 배점 및 심사 소견 ]
---------------------------------------------------------------------------------
-평가 항목                 배점    취득점수    평가 소견
---------------------------------------------------------------------------------
-1) 직무 전문성 및 자격     30점      28점      도면 해독 능력 및 시공 사이클 이해 우수
-2) 현장 안전관리 역량     25점      24점      중대재해처벌법 및 KOSHA 안전기준 이해 철저
-3) 조직 적응력 및 협업     25점      23점      의사소통이 원활하며 현장 협력 마인드 우수
-4) 책임감 및 근면성       20점      19점      성실하고 위기상황 대처 능력이 뛰어남
---------------------------------------------------------------------------------
-총   점                  100점      94점      (평가 등급: A+)
-
-[ 3. 면접관 종합 평가 의견 ]
---------------------------------------------------------------------------------
-"지원자는 건축/토목 실무에 대한 명확한 지식과 책임감을 갖추고 있으며,
-${applicant.siteName || '해당 현장'}의 공기 준수와 현장 인력 관리에 최적의 인재로 판단됨.
-전 면접관 일치된 의견으로 최종 합격 및 채용 확정을 적극 추천함."
-
-[ 4. 최종 결과 판정 ]
---------------------------------------------------------------------------------
-★ 판정 결과 : [ 채 용 확 정 ] (합격)
-• 발급 일시 : 2026-10-23
-• 주관 부서 : (주)태일씨앤티 인사채용팀
-
-================================================================================
-본 문서는 (주)태일씨앤티 채용시스템에서 발급된 공식 평가 문서입니다.
-================================================================================
-`;
-
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
+    // 1. Download directly from server storage API (exact identical file uploaded)
+    const downloadUrl = `/api/files/download?applicantId=${applicant.id}&type=interviewEval`;
     const link = document.createElement('a');
-    link.href = url;
-    const downloadName = rawFileName.endsWith('.txt')
-      ? rawFileName
-      : rawFileName.replace(/\.[^/.]+$/, '') + '_면접평가결과.txt';
-
-    link.download = downloadName;
+    link.href = downloadUrl;
+    link.download = rawFileName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    URL.revokeObjectURL(url);
 
-    setDownloadSuccessMessage(`"${downloadName}" 파일이 브라우저 다운로드 폴더에 저장되었습니다.`);
+    setDownloadSuccessMessage(`"${rawFileName}" 파일이 다운로드 폴더에 저장되었습니다.`);
     setShowInlinePreview(true);
   };
 
@@ -295,28 +251,50 @@ ${applicant.siteName || '해당 현장'}의 공기 준수와 현장 인력 관�
     }
 
     try {
-      const res = await fetch(`/api/applicants/${targetApplicantId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          interviewEvalFile: evalFile,
-          interviewEvalPassword: evalPassword || null,
-          interviewEvalAuth: selectedAuth,
-        }),
-      });
+      if (selectedUploadFile) {
+        const formData = new FormData();
+        formData.append('file', selectedUploadFile);
+        formData.append('applicantId', targetApplicantId);
+        formData.append('type', 'interviewEval');
+        if (evalPassword) formData.append('password', evalPassword);
+        if (selectedAuth) formData.append('auth', selectedAuth);
 
-      if (res.ok) {
-        setIsUploadModalOpen(false);
-        setEvalFile('');
-        setSelectedFileSize(null);
-        setEvalPassword('');
-        setEvalPasswordConfirm('');
-        fetchApplicants();
-        alert('면접평가표 파일 및 보안 설정이 완료되었습니다.');
+        const res = await fetch('/api/files/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json();
+          alert(errorData.error || '저장 중 오류가 발생했습니다.');
+          return;
+        }
       } else {
-        const errorData = await res.json();
-        alert(errorData.error || '저장 중 오류가 발생했습니다.');
+        const res = await fetch(`/api/applicants/${targetApplicantId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            interviewEvalFile: evalFile,
+            interviewEvalPassword: evalPassword || null,
+            interviewEvalAuth: selectedAuth,
+          }),
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json();
+          alert(errorData.error || '저장 중 오류가 발생했습니다.');
+          return;
+        }
       }
+
+      setIsUploadModalOpen(false);
+      setEvalFile('');
+      setSelectedUploadFile(null);
+      setSelectedFileSize(null);
+      setEvalPassword('');
+      setEvalPasswordConfirm('');
+      fetchApplicants();
+      alert('면접평가표 파일 및 보안 설정이 완료되었습니다.');
     } catch (e) {
       console.error(e);
       alert('서버 통신 중 오류가 발생했습니다.');
@@ -611,12 +589,22 @@ ${applicant.siteName || '해당 현장'}의 공기 준수와 현장 인력 관�
                     </span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700">
-                    <span className="text-slate-400">면접일자</span>
-                    <span className="font-bold text-slate-800 dark:text-white">2026.10.23 (금) 10:00</span>
+                    <span className="text-slate-400">면접일시</span>
+                    <span className="font-bold text-slate-800 dark:text-white">
+                      {formatInterviewDateTime(viewingApplicant.interviews?.[0]?.scheduledTime)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700">
+                    <span className="text-slate-400">면접장소</span>
+                    <span className="font-bold text-slate-800 dark:text-white">
+                      {viewingApplicant.interviews?.[0]?.location || '태일씨앤티 본사 회의실'}
+                    </span>
                   </div>
                   <div className="flex justify-between py-1">
                     <span className="text-slate-400">면접관</span>
-                    <span className="font-bold text-slate-800 dark:text-white">김민수 PM, 이지현 팀장, 박준호 이사</span>
+                    <span className="font-bold text-slate-800 dark:text-white">
+                      {viewingApplicant.interviews?.[0]?.interviewers || '김민수 PM, 이지현 팀장'}
+                    </span>
                   </div>
                 </div>
 

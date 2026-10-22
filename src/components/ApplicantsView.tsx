@@ -109,13 +109,40 @@ export default function ApplicantsView() {
     applyPath: '사람인',
     jobRole: '공사',
     siteName: '',
-    memo: '',
     joinDate: '',
+    interviewers: '김민수 PM, 이지현 팀장',
+    interviewDate: '2026-10-23T10:00',
+    interviewLocation: '태일씨앤티 본사 회의실',
+    memo: '',
   });
+
+  // Resume Upload State in Manual Registration Modal
+  const [manualResumeFile, setManualResumeFile] = useState<File | null>(null);
+  const [manualResumeFileName, setManualResumeFileName] = useState<string>('');
+  const [isManualResumeDragging, setIsManualResumeDragging] = useState(false);
+  const manualResumeFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Resume Upload in Detail Modal
+  const detailResumeFileInputRef = useRef<HTMLInputElement>(null);
+  const [isDetailResumeUploading, setIsDetailResumeUploading] = useState(false);
 
   // Memo edit in detail
   const [editingMemo, setEditingMemo] = useState('');
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
+
+  const formatInterviewDateTime = (dateStr?: string | null) => {
+    if (!dateStr) return '2026년 10월 23일(금) 오전 10:00';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return String(dateStr);
+    return d.toLocaleString('ko-KR', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
 
   const fetchApplicants = async () => {
     try {
@@ -272,11 +299,62 @@ export default function ApplicantsView() {
     }
   };
 
+  // Download Resume File
+  const handleDownloadResume = (applicant: Applicant) => {
+    const downloadUrl = `/api/files/download?applicantId=${applicant.id}&type=resume`;
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = applicant.resumeUrl || `이력서_${applicant.name}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showCopyFeedback(`"${applicant.name}" 지원자의 이력서 다운로드가 시작되었습니다.`);
+  };
+
+  // Upload/Replace Resume File from Detail Modal
+  const handleDetailResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedApplicant || !e.target.files || !e.target.files[0]) return;
+    const file = e.target.files[0];
+    setIsDetailResumeUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('applicantId', selectedApplicant.id);
+      formData.append('type', 'resume');
+
+      const res = await fetch('/api/files/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.applicant) {
+          setSelectedApplicant(data.applicant);
+          setApplicants((prev) => prev.map((a) => (a.id === data.applicant.id ? data.applicant : a)));
+        } else {
+          fetchApplicants();
+        }
+        showCopyFeedback(`이력서 파일("${file.name}")이 새로 등록되었습니다.`);
+      } else {
+        alert('이력서 파일 업로드에 실패했습니다.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('업로드 처리 중 오류가 발생했습니다.');
+    } finally {
+      setIsDetailResumeUploading(false);
+      if (detailResumeFileInputRef.current) {
+        detailResumeFileInputRef.current.value = '';
+      }
+    }
+  };
+
   // Format Interview SMS message
   const handleCopyInterviewSMS = (app: Applicant) => {
-    const interviewDate = app.interviews?.[0]?.scheduledTime
-      ? new Date(app.interviews[0].scheduledTime).toLocaleString('ko-KR')
-      : '2026년 10월 23일(금) 오전 10:00';
+    const interviewDate = formatInterviewDateTime(app.interviews?.[0]?.scheduledTime);
+    const location = app.interviews?.[0]?.location || '태일씨앤티 본사 회의실';
+    const interviewers = app.interviews?.[0]?.interviewers || '김민수 PM, 이지현 팀장';
 
     const msg = `[태일씨앤티 면접안내]
 안녕하세요 ${app.name}님, (주)태일씨앤티 채용팀입니다.
@@ -284,7 +362,8 @@ export default function ApplicantsView() {
 
 - 지원직무: ${app.jobRole || '공사'}
 - 면접일시: ${interviewDate}
-- 면접장소: ${app.interviews?.[0]?.location || '태일씨앤티 본사 대회의실'}
+- 면접장소: ${location}
+- 면 접 관: ${interviewers}
 - 안내사항: 신분증 지참 및 면접 10분 전 도착 부탁드립니다.
 
 감사합니다.`;
@@ -328,7 +407,26 @@ export default function ApplicantsView() {
           status: 'APPLIED',
         }),
       });
+
       if (res.ok) {
+        const createdApplicant = await res.json();
+
+        // 선택된 이력서 파일이 있다면 신규 지원자에 업로드 연동
+        if (manualResumeFile && createdApplicant?.id) {
+          try {
+            const formData = new FormData();
+            formData.append('file', manualResumeFile);
+            formData.append('applicantId', createdApplicant.id);
+            formData.append('type', 'resume');
+            await fetch('/api/files/upload', {
+              method: 'POST',
+              body: formData,
+            });
+          } catch (uploadErr) {
+            console.error('Failed to upload manual resume file:', uploadErr);
+          }
+        }
+
         setIsAddModalOpen(false);
         setManualForm({
           name: '',
@@ -337,14 +435,26 @@ export default function ApplicantsView() {
           applyPath: '사람인',
           jobRole: '공사',
           siteName: sites[0]?.name ?? '',
-          memo: '',
           joinDate: '',
+          interviewers: '김민수 PM, 이지현 팀장',
+          interviewDate: '2026-10-23T10:00',
+          interviewLocation: '태일씨앤티 본사 회의실',
+          memo: '',
         });
+        setManualResumeFile(null);
+        setManualResumeFileName('');
+        if (manualResumeFileInputRef.current) {
+          manualResumeFileInputRef.current.value = '';
+        }
         fetchApplicants();
         showCopyFeedback('신규 지원자가 등록되었습니다.');
+      } else {
+        const err = await res.json();
+        alert(err.error || '지원자 등록 중 오류가 발생했습니다.');
       }
     } catch (e) {
       console.error(e);
+      alert('지원자 등록 처리 중 오류가 발생했습니다.');
     }
   };
 
@@ -664,22 +774,45 @@ export default function ApplicantsView() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Resume Card */}
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200">
                     <FileText className="w-4 h-4 text-blue-600" />
                     <span>제출된 이력서</span>
+                    {selectedApplicant.resumeUrl && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 truncate max-w-[150px]">
+                        {selectedApplicant.resumeUrl}
+                      </span>
+                    )}
                   </div>
-                  <button
-                    onClick={() => {
-                      alert('이력서 파일 다운로드가 시작되었습니다.');
-                    }}
-                    className="px-3 py-1 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50"
-                  >
-                    다운로드
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      ref={detailResumeFileInputRef}
+                      type="file"
+                      accept=".pdf,.doc,.docx,.hwp,.hwpx,.xlsx,.xls,.png,.jpg,.jpeg,.txt"
+                      onChange={handleDetailResumeUpload}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      disabled={isDetailResumeUploading}
+                      onClick={() => detailResumeFileInputRef.current?.click()}
+                      className="px-2.5 py-1 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-600 flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                      {isDetailResumeUploading ? '업로드 중...' : '이력서 업로드 / 변경'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadResume(selectedApplicant)}
+                      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer transition-colors"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      다운로드
+                    </button>
+                  </div>
                 </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200/60 dark:border-slate-800">
-                  {selectedApplicant.resumeText || '이력서 파일이 정상 파싱되었습니다.'}
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200/60 dark:border-slate-800 max-h-36 overflow-y-auto whitespace-pre-line">
+                  {selectedApplicant.resumeText || '이력서 파일이 정상 파싱되었거나 등록되어 있습니다.'}
                 </p>
               </div>
 
@@ -796,9 +929,9 @@ export default function ApplicantsView() {
 
                 <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-purple-200/80 text-xs space-y-1 text-slate-700 dark:text-slate-300">
                   <div className="font-bold text-purple-600">[태일씨앤티] 면접 일정 안내</div>
-                  <div>일시: 2026년 10월 23일(금) 오전 10:00</div>
-                  <div>장소: 태일씨앤티 본사 회의실</div>
-                  <div>면접관: 김민수 PM, 이지현 팀장</div>
+                  <div>일시: {formatInterviewDateTime(selectedApplicant.interviews?.[0]?.scheduledTime)}</div>
+                  <div>장소: {selectedApplicant.interviews?.[0]?.location || '태일씨앤티 본사 회의실'}</div>
+                  <div>면접관: {selectedApplicant.interviews?.[0]?.interviewers || '김민수 PM, 이지현 팀장'}</div>
                 </div>
               </div>
 
@@ -994,10 +1127,17 @@ export default function ApplicantsView() {
       {/* Manual Add Modal */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 space-y-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-xl w-full p-6 space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="font-bold text-base text-slate-800 dark:text-white">신규 지원자 수동 등록</h3>
-              <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-white">
+              <h3 className="font-bold text-base text-slate-800 dark:text-white flex items-center gap-2">
+                <Plus className="w-5 h-5 text-blue-600" />
+                신규 지원자 수동 등록
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1098,6 +1238,122 @@ export default function ApplicantsView() {
                 />
               </div>
 
+              {/* 면접관 이름 (입사 예정 일자 바로 아래 위치) */}
+              <div>
+                <label className="font-bold text-slate-600 dark:text-slate-400 block mb-1">면접관 이름</label>
+                <input
+                  type="text"
+                  placeholder="예: 김민수 PM, 이지현 팀장"
+                  value={manualForm.interviewers}
+                  onChange={(e) => setManualForm({ ...manualForm, interviewers: e.target.value })}
+                  className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
+                />
+              </div>
+
+              {/* 면접 일시 및 장소 */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-600 dark:text-slate-400 block mb-1">면접 일시</label>
+                  <input
+                    type="datetime-local"
+                    value={manualForm.interviewDate}
+                    onChange={(e) => setManualForm({ ...manualForm, interviewDate: e.target.value })}
+                    className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-600 dark:text-slate-400 block mb-1">면접 장소</label>
+                  <input
+                    type="text"
+                    placeholder="예: 태일씨앤티 본사 회의실"
+                    value={manualForm.interviewLocation}
+                    onChange={(e) => setManualForm({ ...manualForm, interviewLocation: e.target.value })}
+                    className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
+                  />
+                </div>
+              </div>
+
+              {/* 이력서 파일 첨부 (수동 등록 시 이력서 업로드 기능) */}
+              <div>
+                <label className="font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                  이력서 파일 첨부
+                </label>
+                <input
+                  ref={manualResumeFileInputRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx,.hwp,.hwpx,.xlsx,.xls,.png,.jpg,.jpeg,.txt"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      const f = e.target.files[0];
+                      setManualResumeFile(f);
+                      setManualResumeFileName(f.name);
+                    }
+                  }}
+                  className="hidden"
+                />
+
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsManualResumeDragging(true);
+                  }}
+                  onDragLeave={() => setIsManualResumeDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsManualResumeDragging(false);
+                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                      const f = e.dataTransfer.files[0];
+                      setManualResumeFile(f);
+                      setManualResumeFileName(f.name);
+                    }
+                  }}
+                  onClick={() => manualResumeFileInputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-xl p-3.5 text-center cursor-pointer transition-all ${
+                    isManualResumeDragging
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40'
+                      : 'border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                  }`}
+                >
+                  {manualResumeFileName ? (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="p-2.5 bg-white dark:bg-slate-800 rounded-lg border border-blue-200 dark:border-blue-800 text-xs flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-2 text-slate-800 dark:text-white truncate">
+                        <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                        <span className="font-bold truncate max-w-[280px]">{manualResumeFileName}</span>
+                        {manualResumeFile && (
+                          <span className="text-[10px] text-slate-400 shrink-0">
+                            ({(manualResumeFile.size / 1024).toFixed(1)} KB)
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setManualResumeFile(null);
+                          setManualResumeFileName('');
+                          if (manualResumeFileInputRef.current) {
+                            manualResumeFileInputRef.current.value = '';
+                          }
+                        }}
+                        className="text-slate-400 hover:text-rose-500 p-1 ml-2 cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-1 text-slate-500 dark:text-slate-400 py-1">
+                      <Upload className="w-5 h-5 text-blue-500" />
+                      <p className="font-semibold text-slate-700 dark:text-slate-200 text-xs">
+                        이력서 파일을 마우스로 끌어오거나 <span className="text-blue-600 font-bold underline">파일 선택</span>을 클릭하세요
+                      </p>
+                      <p className="text-[10px] text-slate-400">PDF, Word, HWP, 텍스트 파일 지원</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div>
                 <label className="font-bold text-slate-600 dark:text-slate-400 block mb-1">지원자 메모 (@추천인 등)</label>
                 <textarea
@@ -1113,13 +1369,13 @@ export default function ApplicantsView() {
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
                 >
                   취소
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20"
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20 cursor-pointer"
                 >
                   등록 완료
                 </button>

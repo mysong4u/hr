@@ -40,7 +40,23 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    let { name, email, phone, applyPath, jobRole, siteName, memo, status, jobId, resumeText } = body;
+    let {
+      name,
+      email,
+      phone,
+      applyPath,
+      jobRole,
+      siteName,
+      memo,
+      status,
+      jobId,
+      joinDate,
+      resumeUrl,
+      resumeText,
+      interviewers,
+      interviewDate,
+      interviewLocation,
+    } = body;
 
     if (!name || !phone) {
       return NextResponse.json({ error: '이름과 연락처는 필수 항목입니다.' }, { status: 400 });
@@ -74,8 +90,18 @@ export async function POST(request: NextRequest) {
         siteName: siteName || '',
         memo: memo || '',
         status: status || 'APPLIED',
+        joinDate: joinDate ? new Date(joinDate) : null,
+        resumeUrl: resumeUrl || null,
         resumeText: resumeText || '',
         jobId,
+        interviews: {
+          create: {
+            interviewers: interviewers || '김민수 PM, 이지현 팀장',
+            scheduledTime: interviewDate ? new Date(interviewDate) : null,
+            location: interviewLocation || '태일씨앤티 본사 회의실',
+            status: 'PROPOSED',
+          },
+        },
       },
       include: { job: true, interviews: true },
     });

@@ -18,6 +18,8 @@ export async function PATCH(
       'jobRole',
       'siteName',
       'applyPath',
+      'resumeUrl',
+      'resumeText',
       'personalityTestFile',
       'personalityTestPassword',
       'interviewEvalFile',
@@ -33,6 +35,45 @@ export async function PATCH(
         } else {
           updateData[field] = body[field];
         }
+      }
+    }
+
+    // Interview 정보 업데이트가 포함된 경우
+    if (
+      body.interviewers !== undefined ||
+      body.interviewDate !== undefined ||
+      body.scheduledTime !== undefined ||
+      body.location !== undefined
+    ) {
+      const scheduledTime = body.interviewDate
+        ? new Date(body.interviewDate)
+        : body.scheduledTime
+        ? new Date(body.scheduledTime)
+        : undefined;
+
+      const existingInterview = await prisma.interview.findFirst({
+        where: { applicantId: id },
+      });
+
+      if (existingInterview) {
+        await prisma.interview.update({
+          where: { id: existingInterview.id },
+          data: {
+            ...(body.interviewers !== undefined ? { interviewers: body.interviewers } : {}),
+            ...(scheduledTime !== undefined ? { scheduledTime } : {}),
+            ...(body.location !== undefined ? { location: body.location } : {}),
+          },
+        });
+      } else {
+        await prisma.interview.create({
+          data: {
+            applicantId: id,
+            interviewers: body.interviewers || '김민수 PM, 이지현 팀장',
+            scheduledTime: scheduledTime || null,
+            location: body.location || '태일씨앤티 본사 회의실',
+            status: 'PROPOSED',
+          },
+        });
       }
     }
 
