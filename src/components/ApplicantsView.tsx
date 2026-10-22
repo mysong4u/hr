@@ -333,11 +333,19 @@ export default function ApplicantsView() {
           setSelectedApplicant(data.applicant);
           setApplicants((prev) => prev.map((a) => (a.id === data.applicant.id ? data.applicant : a)));
         } else {
+          const updated = {
+            ...selectedApplicant,
+            resumeUrl: file.name,
+            resumeText: data.text || selectedApplicant.resumeText,
+          };
+          setSelectedApplicant(updated);
+          setApplicants((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
           fetchApplicants();
         }
         showCopyFeedback(`이력서 파일("${file.name}")이 새로 등록되었습니다.`);
       } else {
-        alert('이력서 파일 업로드에 실패했습니다.');
+        const errorData = await res.json().catch(() => ({}));
+        alert(errorData.error || '이력서 파일 업로드에 실패했습니다.');
       }
     } catch (err) {
       console.error(err);
@@ -397,6 +405,29 @@ export default function ApplicantsView() {
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      let initialResumeUrl: string | null = null;
+      let initialResumeText: string | null = null;
+
+      // 1. 이력서 파일이 선택되어 있다면 파일 먼저 안전하게 업로드
+      if (manualResumeFile) {
+        try {
+          const fileForm = new FormData();
+          fileForm.append('file', manualResumeFile);
+          fileForm.append('type', 'resume');
+          const uploadRes = await fetch('/api/files/upload', {
+            method: 'POST',
+            body: fileForm,
+          });
+          if (uploadRes.ok) {
+            const uploadData = await uploadRes.json();
+            initialResumeUrl = uploadData.originalName || manualResumeFile.name;
+            initialResumeText = uploadData.text;
+          }
+        } catch (uploadErr) {
+          console.warn('Initial file upload failed, will continue:', uploadErr);
+        }
+      }
+
       const assignedSite = manualForm.siteName || (sites[0]?.name ?? '평택 P5 RC공사 2공구');
       const res = await fetch('/api/applicants', {
         method: 'POST',
@@ -405,13 +436,15 @@ export default function ApplicantsView() {
           ...manualForm,
           siteName: assignedSite,
           status: 'APPLIED',
+          resumeUrl: initialResumeUrl,
+          resumeText: initialResumeText,
         }),
       });
 
       if (res.ok) {
         const createdApplicant = await res.json();
 
-        // 선택된 이력서 파일이 있다면 신규 지원자에 업로드 연동
+        // 2. 생성된 지원자 ID와 파일 메타데이터 최종 연결
         if (manualResumeFile && createdApplicant?.id) {
           try {
             const formData = new FormData();
@@ -423,7 +456,7 @@ export default function ApplicantsView() {
               body: formData,
             });
           } catch (uploadErr) {
-            console.error('Failed to upload manual resume file:', uploadErr);
+            console.error('Applicant link upload error:', uploadErr);
           }
         }
 
@@ -446,10 +479,10 @@ export default function ApplicantsView() {
         if (manualResumeFileInputRef.current) {
           manualResumeFileInputRef.current.value = '';
         }
-        fetchApplicants();
+        await fetchApplicants();
         showCopyFeedback('신규 지원자가 등록되었습니다.');
       } else {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         alert(err.error || '지원자 등록 중 오류가 발생했습니다.');
       }
     } catch (e) {

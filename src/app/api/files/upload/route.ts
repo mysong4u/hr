@@ -4,19 +4,8 @@ import path from 'path';
 import { prisma } from '@/lib/prisma';
 import mammoth from 'mammoth';
 
-// Node.js 환경에서 pdf-parse가 기대하는 브라우저 API(DOMMatrix) 폴리필 주입
-if (typeof window === 'undefined') {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (global as any).DOMMatrix = class DOMMatrix {
-    constructor() {}
-  };
-}
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdf = require('pdf-parse');
-
-const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads');
-const MANIFEST_PATH = path.join(UPLOADS_DIR, 'manifest.json');
+const UPLOADS_DIR = path.resolve(process.cwd(), 'public', 'uploads');
+const MANIFEST_PATH = path.resolve(UPLOADS_DIR, 'manifest.json');
 
 function ensureUploadsDir() {
   if (!fs.existsSync(UPLOADS_DIR)) {
@@ -49,98 +38,117 @@ function saveManifest(manifest: Record<string, any>) {
 export async function POST(request: NextRequest) {
   try {
     ensureUploadsDir();
-    const formData = await request.formData();
-    const file = formData.get('file') as File;
-    const applicantId = formData.get('applicantId') as string | null;
-    const type = (formData.get('type') as string) || 'resume';
-    const password = formData.get('password') as string | null;
-    const auth = formData.get('auth') as string | null;
 
-    if (!file) {
-      return NextResponse.json({ error: '업로드할 파일이 없습니다.' }, { status: 400 });
+    const formData = await request.formData();
+    const file = formData.get('file');
+    const applicantId = (formData.get('applicantId') as string | null) || null;
+    const type = (formData.get('type') as string) || 'resume';
+    const password = (formData.get('password') as string | null) || null;
+    const auth = (formData.get('auth') as string | null) || null;
+
+    if (!file || typeof file === 'string' || typeof (file as any).arrayBuffer !== 'function') {
+      return NextResponse.json({ error: '유효한 파일이 첨부되지 않았습니다.' }, { status: 400 });
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const originalName = file.name;
+    const browserFile = file as File;
+    const arrayBuf = await browserFile.arrayBuffer();
+    const buffer = Buffer.from(arrayBuf);
+    const originalName = browserFile.name || 'uploaded_file';
     const timestamp = Date.now();
     const safeOriginalName = originalName.replace(/[^a-zA-Z0-9가-힣._-]/g, '_');
     const savedFileName = `${type}_${applicantId || 'temp'}_${timestamp}_${safeOriginalName}`;
     const filePath = path.join(UPLOADS_DIR, savedFileName);
 
-    // 실제 바이너리 파일 저장
+    // 실제 바이너리 파일 디스크 저장
     fs.writeFileSync(filePath, buffer);
 
-    // Manifest 업데이트
+    // Manifest 메타데이터 등록
     const manifest = getManifest();
-    const key = applicantId ? `${applicantId}_${type}` : `temp_${timestamp}_${type}`;
-    manifest[key] = {
+    const manifestKey = applicantId ? `${applicantId}_${type}` : `temp_${timestamp}_${type}`;
+    manifest[manifestKey] = {
       originalName,
       savedFileName,
-      size: file.size,
-      mimeType: file.type || 'application/octet-stream',
+      size: buffer.length,
+      mimeType: browserFile.type || 'application/octet-stream',
       uploadedAt: new Date().toISOString(),
       applicantId: applicantId || null,
       type,
     };
     saveManifest(manifest);
 
-    // 텍스트 추출 (이력서인 경우)
+    // 텍스트 추출 (docx, txt 등 안전하게 지원)
     let text = '';
     if (type === 'resume') {
       try {
-        if (originalName.endsWith('.pdf')) {
-          const data = await pdf(buffer);
-          text = data.text;
-        } else if (originalName.endsWith('.docx')) {
-          const data = await mammoth.extractRawText({ buffer });
-          text = data.value;
-        } else if (originalName.endsWith('.txt')) {
+        const lowerName = originalName.toLowerCase();
+        if (lowerName.endsWith('.docx')) {
+          const docxData = await mammoth.extractRawText({ buffer });
+          text = docxData.value;
+        } else if (lowerName.endsWith('.txt')) {
           text = buffer.toString('utf-8');
+        } else if (lowerName.endsWith('.pdf')) {
+          // PDF 바이너리 내 인쇄 가능 문자 기반 텍스트 요약
+          const snippet = buffer.toString('utf-8', 0, Math.min(buffer.length, 5000));
+          const cleaned = snippet.replace(/[^\x20-\x7E\uAC00-\uD7A3\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim();
+          if (cleaned.length > 50) {
+            text = cleaned.slice(0, 500);
+          }
         }
         text = text.replace(/\n+/g, '\n').trim();
-      } catch (err) {
-        console.warn('Text extraction failed:', err);
+      } catch (extractErr) {
+        console.warn('Text extraction skipped:', extractErr);
       }
     }
 
+    // 지원자 정보 갱신 (applicantId가 전달된 경우)
     let updatedApplicant = null;
-    if (applicantId) {
-      if (type === 'resume') {
-        updatedApplicant = await prisma.applicant.update({
-          where: { id: applicantId },
-          data: {
-            resumeUrl: originalName,
-            ...(text ? { resumeText: text } : {}),
-          },
-          include: { interviews: true, job: true },
+    if (applicantId && applicantId.trim()) {
+      try {
+        const existingApplicant = await prisma.applicant.findUnique({
+          where: { id: applicantId.trim() },
         });
-      } else if (type === 'interviewEval') {
-        const updateData: any = {
-          interviewEvalFile: originalName,
-        };
-        if (password !== null && password !== undefined) {
-          updateData.interviewEvalPassword = password || null;
+
+        if (existingApplicant) {
+          if (type === 'resume') {
+            updatedApplicant = await prisma.applicant.update({
+              where: { id: applicantId.trim() },
+              data: {
+                resumeUrl: originalName,
+                ...(text ? { resumeText: text } : {}),
+              },
+              include: { interviews: true, job: true },
+            });
+          } else if (type === 'interviewEval') {
+            const updateData: any = {
+              interviewEvalFile: originalName,
+            };
+            if (password !== null && password !== undefined) {
+              updateData.interviewEvalPassword = password || null;
+            }
+            if (auth) {
+              updateData.interviewEvalAuth = auth;
+            }
+            updatedApplicant = await prisma.applicant.update({
+              where: { id: applicantId.trim() },
+              data: updateData,
+              include: { interviews: true, job: true },
+            });
+          } else if (type === 'personality') {
+            const updateData: any = {
+              personalityTestFile: originalName,
+            };
+            if (password !== null && password !== undefined) {
+              updateData.personalityTestPassword = password || null;
+            }
+            updatedApplicant = await prisma.applicant.update({
+              where: { id: applicantId.trim() },
+              data: updateData,
+              include: { interviews: true, job: true },
+            });
+          }
         }
-        if (auth) {
-          updateData.interviewEvalAuth = auth;
-        }
-        updatedApplicant = await prisma.applicant.update({
-          where: { id: applicantId },
-          data: updateData,
-          include: { interviews: true, job: true },
-        });
-      } else if (type === 'personality') {
-        const updateData: any = {
-          personalityTestFile: originalName,
-        };
-        if (password !== null && password !== undefined) {
-          updateData.personalityTestPassword = password || null;
-        }
-        updatedApplicant = await prisma.applicant.update({
-          where: { id: applicantId },
-          data: updateData,
-          include: { interviews: true, job: true },
-        });
+      } catch (dbErr) {
+        console.error('Database update error in upload:', dbErr);
       }
     }
 
@@ -149,11 +157,17 @@ export async function POST(request: NextRequest) {
       originalName,
       savedFileName,
       url: `/uploads/${savedFileName}`,
-      text,
+      text: text || `${originalName} 파일이 정상 등록되었습니다.`,
       applicant: updatedApplicant,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('File upload error:', error);
-    return NextResponse.json({ error: '파일 업로드 처리 중 오류가 발생했습니다.' }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: error?.message || '파일 업로드 처리 중 오류가 발생했습니다.',
+        detail: String(error),
+      },
+      { status: 500 }
+    );
   }
 }

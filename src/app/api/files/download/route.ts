@@ -3,8 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import { prisma } from '@/lib/prisma';
 
-const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads');
-const MANIFEST_PATH = path.join(UPLOADS_DIR, 'manifest.json');
+const UPLOADS_DIR = path.resolve(process.cwd(), 'public', 'uploads');
+const MANIFEST_PATH = path.resolve(UPLOADS_DIR, 'manifest.json');
 
 function getMimeType(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase();
@@ -80,50 +80,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 2. applicantId와 type으로 요청된 경우
+    // 2. applicantId가 전달된 경우 지원자 조회 및 다각적 파일 검색
     if (!filePath && applicantId) {
-      const manifest = getManifest();
-      const metaKey = `${applicantId}_${type}`;
-      if (manifest[metaKey] && manifest[metaKey].savedFileName) {
-        const candidate = path.join(UPLOADS_DIR, manifest[metaKey].savedFileName);
-        if (fs.existsSync(candidate)) {
-          filePath = candidate;
-          originalName = manifest[metaKey].originalName || manifest[metaKey].savedFileName;
-        }
-      }
-
-      // Manifest에 없더라도 public/uploads 폴더에서 prefix 패턴 매칭 검색
-      if (!filePath && fs.existsSync(UPLOADS_DIR)) {
-        const files = fs.readdirSync(UPLOADS_DIR);
-        const prefix = `${type}_${applicantId}_`;
-        const matched = files.filter((f) => f.startsWith(prefix)).sort().reverse()[0];
-        if (matched) {
-          filePath = path.join(UPLOADS_DIR, matched);
-          // prefix 뒤의 원본 파일명 추출
-          const parts = matched.split('_');
-          originalName = parts.slice(3).join('_') || matched;
-        }
-      }
-    }
-
-    // 3. 실제 저장된 바이너리 파일이 발견된 경우 즉시 반환
-    if (filePath && fs.existsSync(filePath)) {
-      const fileBuffer = fs.readFileSync(filePath);
-      const mimeType = getMimeType(originalName);
-
-      const encodedFilename = encodeURIComponent(originalName);
-      return new NextResponse(fileBuffer, {
-        status: 200,
-        headers: {
-          'Content-Type': mimeType,
-          'Content-Disposition': `attachment; filename="${encodedFilename}"; filename*=UTF-8''${encodedFilename}`,
-          'Content-Length': fileBuffer.length.toString(),
-        },
-      });
-    }
-
-    // 4. 업로드된 파일이 없는 경우의 Fallback 처리
-    if (applicantId) {
       const applicant = await prisma.applicant.findUnique({
         where: { id: applicantId },
         include: { interviews: true },
@@ -133,11 +91,79 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: '지원자 정보를 찾을 수 없습니다.' }, { status: 404 });
       }
 
+      const manifest = getManifest();
+      const metaKey = `${applicantId}_${type}`;
+
+      // A. Manifest에서 검색
+      if (manifest[metaKey] && manifest[metaKey].savedFileName) {
+        const candidate = path.join(UPLOADS_DIR, manifest[metaKey].savedFileName);
+        if (fs.existsSync(candidate)) {
+          filePath = candidate;
+          originalName = manifest[metaKey].originalName || manifest[metaKey].savedFileName;
+        }
+      }
+
+      // B. public/uploads 폴더에서 파일명 패턴 검색
+      if (!filePath && fs.existsSync(UPLOADS_DIR)) {
+        const files = fs.readdirSync(UPLOADS_DIR);
+
+        // 1순위: applicantId를 포함하는 해당 type 파일
+        const matchedById = files
+          .filter((f) => f.startsWith(`${type}_${applicantId}_`))
+          .sort()
+          .reverse()[0];
+
+        if (matchedById) {
+          filePath = path.join(UPLOADS_DIR, matchedById);
+          const parts = matchedById.split('_');
+          originalName = parts.slice(3).join('_') || matchedById;
+        }
+
+        // 2순위: DB에 저장된 resumeUrl 또는 interviewEvalFile 값과 일치하는 파일
+        if (!filePath) {
+          const targetDbName = type === 'resume' ? applicant.resumeUrl : applicant.interviewEvalFile;
+          if (targetDbName) {
+            // direct match
+            const directMatch = path.join(UPLOADS_DIR, targetDbName);
+            if (fs.existsSync(directMatch)) {
+              filePath = directMatch;
+              originalName = targetDbName;
+            } else {
+              // suffix match
+              const suffixMatch = files.find((f) => f.endsWith(`_${targetDbName}`) || f === targetDbName);
+              if (suffixMatch) {
+                filePath = path.join(UPLOADS_DIR, suffixMatch);
+                originalName = targetDbName;
+              }
+            }
+          }
+        }
+      }
+
+      // 실제 디스크 파일이 발견된 경우 바이너리 반환
+      if (filePath && fs.existsSync(filePath)) {
+        const fileBuffer = fs.readFileSync(filePath);
+        const mimeType = getMimeType(originalName);
+        const encodedFilename = encodeURIComponent(originalName);
+        return new NextResponse(fileBuffer, {
+          status: 200,
+          headers: {
+            'Content-Type': mimeType,
+            'Content-Disposition': `attachment; filename="${encodedFilename}"; filename*=UTF-8''${encodedFilename}`,
+            'Content-Length': fileBuffer.length.toString(),
+          },
+        });
+      }
+
+      // 실제 파일이 없는 경우의 안전한 텍스트 Fallback
       if (type === 'resume') {
         const textContent =
-          applicant.resumeText ||
-          `${applicant.name} 지원자의 이력서 내용이 시스템에 등록되어 있지 않습니다.`;
-        const downloadName = `이력서_${applicant.name}.txt`;
+          applicant.resumeText && applicant.resumeText.trim().length > 0
+            ? applicant.resumeText
+            : `${applicant.name} 지원자의 이력서가 시스템에 등록되어 있습니다.\n\n• 성명: ${applicant.name}\n• 연락처: ${applicant.phone}\n• 직무: ${applicant.jobRole || '공사'}\n• 현장: ${applicant.siteName || '미정'}\n• 지원경로: ${applicant.applyPath || '사람인'}`;
+        const downloadName = applicant.resumeUrl
+          ? (applicant.resumeUrl.endsWith('.pdf') || applicant.resumeUrl.endsWith('.txt') ? applicant.resumeUrl : `${applicant.resumeUrl}.txt`)
+          : `이력서_${applicant.name}.txt`;
         const encodedFilename = encodeURIComponent(downloadName);
         return new NextResponse(Buffer.from(textContent, 'utf-8'), {
           status: 200,

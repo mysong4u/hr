@@ -265,7 +265,7 @@ export default function EvaluationsView() {
         });
 
         if (!res.ok) {
-          const errorData = await res.json();
+          const errorData = await res.json().catch(() => ({}));
           alert(errorData.error || '저장 중 오류가 발생했습니다.');
           return;
         }
@@ -281,7 +281,7 @@ export default function EvaluationsView() {
         });
 
         if (!res.ok) {
-          const errorData = await res.json();
+          const errorData = await res.json().catch(() => ({}));
           alert(errorData.error || '저장 중 오류가 발생했습니다.');
           return;
         }

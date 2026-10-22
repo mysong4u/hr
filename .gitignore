@@ -42,3 +42,8 @@ next-env.d.ts
 
 # Local Netlify folder
 .netlify
+
+# Uploads
+/public/uploads/*
+!/public/uploads/.gitkeep
+
