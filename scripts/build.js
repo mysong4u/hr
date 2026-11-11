@@ -14,19 +14,25 @@ try {
     console.log('ℹ️ PostgreSQL schema not found, using default schema.');
   }
 
-  // DATABASE_URL이 환경 변수에 설정되어 있을 때만 원격 DB에 스키마를 동기화(push)합니다.
-  if (process.env.DATABASE_URL) {
+  // DATABASE_URL이 환경 변수에 설정되어 있고 올바른 PostgreSQL 프로토콜일 때만 원격 DB에 스키마를 동기화(push)합니다.
+  const dbUrl = (process.env.DATABASE_URL || '').trim();
+  if (dbUrl.startsWith('postgresql://') || dbUrl.startsWith('postgres://')) {
     console.log('🚀 Connecting to PostgreSQL and pushing database schema...');
-    execSync('npx prisma db push', { stdio: 'inherit' });
+    try {
+      execSync('npx prisma db push', { stdio: 'inherit' });
+    } catch (pushErr) {
+      console.warn('⚠️ Prisma db push failed, fallback to generate:', pushErr.message);
+      execSync('npx prisma generate', { stdio: 'inherit' });
+    }
   } else {
-    console.log('⚠️ DATABASE_URL is not set. Skipping DB push.');
+    console.log('⚠️ Valid PostgreSQL DATABASE_URL is not set. Skipping DB push.');
     console.log('ℹ️ Generating Prisma client local bindings...');
     execSync('npx prisma generate', { stdio: 'inherit' });
   }
 
   console.log('📦 Bundling Next.js application...');
   // 실제 Next.js 빌드는 package.json 내의 next build를 무조건 수행합니다.
-  execSync('next build', { stdio: 'inherit' });
+  execSync('npx next build', { stdio: 'inherit' });
   console.log('🎉 Production build succeeded!');
 } catch (error) {
   console.error('❌ Build script failed:', error);
