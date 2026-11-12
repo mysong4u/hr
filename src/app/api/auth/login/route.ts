@@ -11,17 +11,17 @@ export async function POST(request: NextRequest) {
 
     const trimmedName = name.trim();
 
-    // Check if any users exist in DB, if none or if default user missing, seed '김담당'
+    // Check if any users exist in DB, if none or if default user missing, seed '김담당' or '김영준'
     let user = await prisma.user.findUnique({
       where: { name: trimmedName },
     });
 
-    if (!user && (trimmedName === '김담당' || trimmedName === '김담당 님')) {
+    if (!user && (trimmedName === '김담당' || trimmedName === '김담당 님' || trimmedName === '김영준')) {
       user = await prisma.user.create({
         data: {
           name: trimmedName,
           department: '인사채용팀',
-          role: '담당자',
+          role: trimmedName === '김영준' ? '총괄관리자' : '담당자',
           password: '1111',
         },
       });

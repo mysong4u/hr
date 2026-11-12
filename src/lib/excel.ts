@@ -52,6 +52,8 @@ export function getStatusLabel(status: string): string {
       return '면접일자 확정';
     case 'ACCEPTED':
       return '채용 확정';
+    case 'JOIN_CANCELLED':
+      return '입사취소';
     case 'REJECTED':
       return '불합격';
     case 'ONBOARDING_SCHEDULED':
@@ -89,6 +91,10 @@ export function parseStatusFromLabel(label?: string): string {
     case '최종합격':
     case 'ACCEPTED':
       return 'ACCEPTED';
+    case '입사취소':
+    case '입사 취소':
+    case 'JOIN_CANCELLED':
+      return 'JOIN_CANCELLED';
     case '불합격':
     case 'REJECTED':
       return 'REJECTED';

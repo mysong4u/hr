@@ -79,8 +79,9 @@ const PIPELINE_STEPS = [
   { id: 'PERSONALITY_TEST_PENDING', label: '2. 인성검사 진행', color: 'from-amber-500 to-orange-500' },
   { id: 'PERSONALITY_TEST_COMPLETED', label: '3. 인성검사 완료', color: 'from-teal-500 to-emerald-600' },
   { id: 'INTERVIEW_SCHEDULED', label: '4. 면접일자 확정', color: 'from-purple-600 to-indigo-600' },
-  { id: 'ONBOARDING_SCHEDULED', label: '5. 입문교육 일정', color: 'from-pink-600 to-rose-500' },
-  { id: 'ACCEPTED', label: '채용확정', color: 'from-emerald-600 to-green-700' },
+  { id: 'ACCEPTED', label: '5. 채용확정', color: 'from-emerald-600 to-green-700' },
+  { id: 'ONBOARDING_SCHEDULED', label: '입문교육 일정', color: 'from-pink-600 to-rose-500' },
+  { id: 'JOIN_CANCELLED', label: '입사취소', color: 'from-amber-600 to-yellow-600' },
   { id: 'REJECTED', label: '불합격', color: 'from-rose-600 to-red-700' },
 ];
 
@@ -104,9 +105,14 @@ export default function ApplicantsView() {
 
   // Personality Upload form
   const [personalityFile, setPersonalityFile] = useState<string>('인성평가결과표.pdf');
-  const [personalityPassword, setPersonalityPassword] = useState<string>('');
+  const [personalityPassword, setPersonalityPassword] = useState<string>('1111');
   const [isPersonalityDragging, setIsPersonalityDragging] = useState(false);
   const personalityFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Detail Modal joinDate & siteName adjustment
+  const [detailJoinDate, setDetailJoinDate] = useState<string>('');
+  const [detailSiteName, setDetailSiteName] = useState<string>('');
+  const [isSavingJoinDateAndSite, setIsSavingJoinDateAndSite] = useState(false);
 
   // Manual Add Form
   const [manualForm, setManualForm] = useState({
@@ -158,6 +164,39 @@ export default function ApplicantsView() {
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const formatInterviewNoticeDate = (dateStr?: string | null) => {
+    if (!dateStr) return '2026.00.00.(0) 00:00';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return String(dateStr);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const weekDays = ['일', '월', '화', '수', '목', '금', '토'];
+    const week = weekDays[d.getDay()];
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${y}.${m}.${day}.(${week}) ${hh}:${mm}`;
+  };
+
+  const formatOnboardingNoticeDate = (dateStr?: string | null) => {
+    if (!dateStr) return '2026.00.00 0요일';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return String(dateStr);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const weekDays = ['일', '월', '화', '수', '목', '금', '토'];
+    const week = weekDays[d.getDay()];
+    return `${y}.${m}.${day} ${week}요일`;
+  };
+
+  const openDetailModal = (app: Applicant) => {
+    setSelectedApplicant(app);
+    setEditingMemo(app.memo || '');
+    setDetailJoinDate(app.joinDate ? app.joinDate.split('T')[0] : '');
+    setDetailSiteName(app.siteName || '');
   };
 
   const getDisplayFileName = (value?: string | null, fallback = '') => {
@@ -223,6 +262,7 @@ export default function ApplicantsView() {
     INTERVIEW_SCHEDULED: applicants.filter((a) => a.status === 'INTERVIEW_SCHEDULED').length,
     ONBOARDING_SCHEDULED: applicants.filter((a) => a.status === 'ONBOARDING_SCHEDULED').length,
     ACCEPTED: applicants.filter((a) => a.status === 'ACCEPTED').length,
+    JOIN_CANCELLED: applicants.filter((a) => a.status === 'JOIN_CANCELLED').length,
     REJECTED: applicants.filter((a) => a.status === 'REJECTED').length,
   };
 
@@ -287,13 +327,14 @@ export default function ApplicantsView() {
   // Submit personality upload
   const handleSavePersonalityTest = async () => {
     if (!selectedApplicant) return;
+    const finalPassword = personalityPassword.trim() || '1111';
     try {
       const res = await fetch(`/api/applicants/${selectedApplicant.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           personalityTestFile: personalityFile,
-          personalityTestPassword: personalityPassword || null,
+          personalityTestPassword: finalPassword,
           status: 'PERSONALITY_TEST_COMPLETED',
         }),
       });
@@ -302,8 +343,8 @@ export default function ApplicantsView() {
         setApplicants((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
         setSelectedApplicant(updated);
         setIsPersonalityUploadModalOpen(false);
-        setPersonalityPassword('');
-        showCopyFeedback('인성검사 결과표가 등록되었으며 "인성검사 완료" 상태로 전환되었습니다.');
+        setPersonalityPassword('1111');
+        showCopyFeedback('인성검사 결과표가 기본 비밀번호(1111)로 안전하게 등록되었습니다.');
       }
     } catch (e) {
       console.error(e);
@@ -327,6 +368,41 @@ export default function ApplicantsView() {
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  // Save Join Date & Site Name from Detail Modal
+  const handleSaveJoinDateAndSite = async () => {
+    if (!selectedApplicant) return;
+    try {
+      setIsSavingJoinDateAndSite(true);
+      const res = await fetch(`/api/applicants/${selectedApplicant.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          joinDate: detailJoinDate ? new Date(detailJoinDate) : null,
+          siteName: detailSiteName || null,
+        }),
+      });
+
+      if (res.ok) {
+        const updated = {
+          ...selectedApplicant,
+          joinDate: detailJoinDate ? new Date(detailJoinDate).toISOString() : null,
+          siteName: detailSiteName || null,
+        };
+        setSelectedApplicant(updated);
+        setApplicants((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+        showCopyFeedback('채용 확정 일 및 채용 현장이 성공적으로 저장되었습니다.');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || '저장 중 오류가 발생했습니다.');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('저장 처리 중 오류가 발생했습니다.');
+    } finally {
+      setIsSavingJoinDateAndSite(false);
     }
   };
 
@@ -391,45 +467,51 @@ export default function ApplicantsView() {
 
   // Format Interview SMS message
   const handleCopyInterviewSMS = (app: Applicant) => {
-    const interviewDate = formatInterviewDateTime(app.interviews?.[0]?.scheduledTime);
-    const location = app.interviews?.[0]?.location || '태일씨앤티 본사 회의실';
-    const interviewers = app.interviews?.[0]?.interviewers || '김민수 PM, 이지현 팀장';
+    const interviewDate = formatInterviewNoticeDate(app.interviews?.[0]?.scheduledTime);
+    const location =
+      app.interviews?.[0]?.location ||
+      '서울시 금천구 가산디지털2로 101, 한라원앤원타워 B동 1701호';
 
-    const msg = `[태일씨앤티 면접안내]
-안녕하세요 ${app.name}님, (주)태일씨앤티 채용팀입니다.
-서류전형 합격을 축하드리며 아래와 같이 면접 일정을 안내해 드립니다.
+    const msg = `(주)태일씨앤티입니다.
 
-- 지원직무: ${app.jobRole || '공사'}
-- 면접일시: ${interviewDate}
-- 면접장소: ${location}
-- 면 접 관: ${interviewers}
-- 안내사항: 신분증 지참 및 면접 10분 전 도착 부탁드립니다.
+아래와 같이 면접 일정을 안내드리오니, 확인하시어 늦지 않게 참석해 주시기 바랍니다.
+부득이하게 일정 조정이 필요하신 경우 사전에 연락 부탁드립니다.
 
-감사합니다.`;
+감사합니다.
+
+ 
+              -   아    래   -
+
+일시 : ${interviewDate}
+
+장소 : ${location}
+
+사무실 현관 앞에 도착하시면 연락 주시기 바랍니다. 안내해 드리겠습니다.`;
 
     navigator.clipboard.writeText(msg);
-    showCopyFeedback('면접 안내 문자가 클립보드에 복사되었습니다.');
+    showCopyFeedback('면접 일정 안내 문구가 클립보드에 복사되었습니다.');
   };
 
   // Format Onboarding SMS message (Page 10 in PDF)
   const handleCopyOnboardingSMS = (app: Applicant) => {
-    const targetDate = app.joinDate
-      ? new Date(app.joinDate).toISOString().split('T')[0]
-      : '2026-11-01';
+    const targetDate = formatOnboardingNoticeDate(app.joinDate);
 
-    const msg = `[태일씨앤티 입문교육 안내]
-안녕하세요 ${app.name}님, (주)태일씨앤티입니다.
-최종 합격을 진심으로 축하드리며, 입문교육 일정을 안내드립니다.
+    const msg = `안녕하세요.
 
-- 일시: ${targetDate} 오전 10:00
-- 장소: ${app.siteName || (sites[0]?.name ?? '평택 P5 RC공사 2공구')} 현장사무실
-- 준비물: 신분증 사본, 통장 사본, 자격증 사본
+신규입사자 입문교육(OJT) 일정을 아래와 같이 안내드립니다.
 
-상세 문의: 010-1234-5678 (인사채용팀)
+교육 일정: ${targetDate}
+
+교육 장소: 서울특별시 금천구 가산디지털2로 101, 한라원앤원 타워 B동 17층 1701호
+
+집합 시간: 오전 0시 00분까지 도착
+
+원활한 교육 진행을 위해 집합 시간을 반드시 준수해 주시기 바랍니다.
+
 감사합니다.`;
 
     navigator.clipboard.writeText(msg);
-    showCopyFeedback('입문교육 안내 문자가 클립보드에 복사되었습니다.');
+    showCopyFeedback('입문교육 안내 문구가 클립보드에 복사되었습니다.');
   };
 
   // Handle Manual Add
@@ -584,7 +666,7 @@ export default function ApplicantsView() {
       )}
 
       {/* Top Banner / Pipeline Navigation Cards (Pages 6, 7 in PDF) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 gap-3">
         {PIPELINE_STEPS.map((step) => {
           const isSelected = selectedStatusTab === step.id;
           const count = statusCounts[step.id] || 0;
@@ -729,10 +811,7 @@ export default function ApplicantsView() {
                   return (
                     <tr
                       key={app.id}
-                      onClick={() => {
-                        setSelectedApplicant(app);
-                        setEditingMemo(app.memo || '');
-                      }}
+                      onClick={() => openDetailModal(app)}
                       className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors cursor-pointer"
                     >
                       <td className="py-4 px-5 text-slate-400">{idx + 1}</td>
@@ -770,10 +849,12 @@ export default function ApplicantsView() {
                               ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400 border border-purple-200'
                               : app.status === 'ACCEPTED'
                               ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-300'
+                              : app.status === 'JOIN_CANCELLED'
+                              ? 'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-300'
                               : app.status === 'REJECTED'
                               ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-300'
                               : app.status === 'ONBOARDING_SCHEDULED'
-                              ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200'
+                              ? 'bg-pink-50 text-pink-700 dark:bg-pink-950/40 dark:text-pink-400 border border-pink-200'
                               : 'bg-slate-100 text-slate-600'
                           }`}
                         >
@@ -784,8 +865,7 @@ export default function ApplicantsView() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            setSelectedApplicant(app);
-                            setEditingMemo(app.memo || '');
+                            openDetailModal(app);
                           }}
                           className="px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold"
                         >
@@ -836,55 +916,71 @@ export default function ApplicantsView() {
               </button>
             </div>
 
-            {/* Stepper Pipeline Status Changer with '채용확정' and '불합격' buttons */}
+            {/* Stepper Pipeline Status Changer with '채용확정', '입사취소', '불합격' buttons */}
             <div className="space-y-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider block">
                     채용 단계 변경
                   </label>
-                  <p className="text-[11px] text-slate-400 mt-0.5">단계를 클릭하거나 [채용확정] / [불합격]으로 바로 결정할 수 있습니다.</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">단계를 클릭하거나 우측 버튼으로 즉시 결정할 수 있습니다.</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <button
+                    type="button"
                     onClick={() => handleUpdateStatus(selectedApplicant.id, 'ACCEPTED')}
-                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs ${
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs ${
                       selectedApplicant.status === 'ACCEPTED'
                         ? 'bg-emerald-600 text-white ring-2 ring-emerald-400'
                         : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 hover:bg-emerald-600 hover:text-white'
                     }`}
                   >
-                    <CheckCircle2 className="w-4 h-4" />
+                    <CheckCircle2 className="w-3.5 h-3.5" />
                     채용확정
                   </button>
                   <button
+                    type="button"
+                    onClick={() => handleUpdateStatus(selectedApplicant.id, 'JOIN_CANCELLED')}
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs ${
+                      selectedApplicant.status === 'JOIN_CANCELLED'
+                        ? 'bg-amber-600 text-white ring-2 ring-amber-400'
+                        : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800 hover:bg-amber-600 hover:text-white'
+                    }`}
+                  >
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    입사취소
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => handleUpdateStatus(selectedApplicant.id, 'REJECTED')}
-                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs ${
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs ${
                       selectedApplicant.status === 'REJECTED'
                         ? 'bg-rose-600 text-white ring-2 ring-rose-400'
                         : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-300 dark:border-rose-800 hover:bg-rose-600 hover:text-white'
                     }`}
                   >
-                    <X className="w-4 h-4" />
+                    <X className="w-3.5 h-3.5" />
                     불합격
                   </button>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1">
+              <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 pt-1">
                 {[
                   { id: 'APPLIED', num: '1', title: '이력서 지원' },
                   { id: 'PERSONALITY_TEST_PENDING', num: '2', title: '인성검사 진행' },
                   { id: 'PERSONALITY_TEST_COMPLETED', num: '3', title: '인성검사 완료' },
                   { id: 'INTERVIEW_SCHEDULED', num: '4', title: '면접일자 확정' },
-                  { id: 'ONBOARDING_SCHEDULED', num: '5', title: '입문교육 일정' },
+                  { id: 'ACCEPTED', num: '5', title: '채용확정' },
+                  { id: 'ONBOARDING_SCHEDULED', num: '6', title: '입문교육 일정' },
                 ].map((st) => {
                   const isActive = selectedApplicant.status === st.id;
                   return (
                     <button
                       key={st.id}
+                      type="button"
                       onClick={() => handleUpdateStatus(selectedApplicant.id, st.id)}
-                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                      className={`p-2 rounded-xl border text-center transition-all cursor-pointer ${
                         isActive
                           ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-500/20 font-bold'
                           : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-400 text-xs'
@@ -895,6 +991,63 @@ export default function ApplicantsView() {
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            {/* 채용 확정 일 및 채용 현장 조정 카드 */}
+            <div className="p-4 rounded-2xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/80 dark:border-blue-800/60 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-blue-950 dark:text-blue-300 flex items-center gap-1.5">
+                  <Building2 className="w-4 h-4 text-blue-600" />
+                  채용 정보 조정 (채용 확정 일 / 채용 현장)
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  입사일자와 배정현장을 자유롭게 변경하고 저장할 수 있습니다.
+                </span>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3 text-xs">
+                {/* 채용 확정 일 */}
+                <div className="flex-1 space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block text-[11px]">
+                    채용 확정 일 (입사일자)
+                  </label>
+                  <input
+                    type="date"
+                    value={detailJoinDate}
+                    onChange={(e) => setDetailJoinDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white font-medium focus:outline-blue-600 text-xs"
+                  />
+                </div>
+
+                {/* 채용 현장 선택 */}
+                <div className="flex-1 space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block text-[11px]">
+                    채용 현장 선택
+                  </label>
+                  <select
+                    value={detailSiteName}
+                    onChange={(e) => setDetailSiteName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white font-medium focus:outline-blue-600 text-xs cursor-pointer"
+                  >
+                    <option value="">현장 미지정 (선택안함)</option>
+                    {sites.map((s) => (
+                      <option key={s.id} value={s.name}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 저장 버튼 */}
+                <button
+                  type="button"
+                  onClick={handleSaveJoinDateAndSite}
+                  disabled={isSavingJoinDateAndSite}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition-all shadow-xs shrink-0 cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingJoinDateAndSite ? '저장 중...' : '변경 저장'}
+                </button>
               </div>
             </div>
 
@@ -1047,11 +1200,24 @@ export default function ApplicantsView() {
                   </div>
                 </div>
 
-                <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-purple-200/80 text-xs space-y-1 text-slate-700 dark:text-slate-300">
+                <div className="p-3.5 bg-white dark:bg-slate-900 rounded-xl border border-purple-200/80 text-xs space-y-2 text-slate-700 dark:text-slate-300 leading-relaxed font-sans">
                   <div className="font-bold text-purple-600">[태일씨앤티] 면접 일정 안내</div>
-                  <div>일시: {formatInterviewDateTime(selectedApplicant.interviews?.[0]?.scheduledTime)}</div>
-                  <div>장소: {selectedApplicant.interviews?.[0]?.location || '태일씨앤티 본사 회의실'}</div>
-                  <div>면접관: {selectedApplicant.interviews?.[0]?.interviewers || '김민수 PM, 이지현 팀장'}</div>
+                  <div className="text-[11px] text-slate-600 dark:text-slate-300 space-y-2">
+                    <p>(주)태일씨앤티입니다.</p>
+                    <p>
+                      아래와 같이 면접 일정을 안내드리오니, 확인하시어 늦지 않게 참석해 주시기 바랍니다.<br />
+                      부득이하게 일정 조정이 필요하신 경우 사전에 연락 부탁드립니다.
+                    </p>
+                    <p>감사합니다.</p>
+                    <div className="py-2 text-center font-bold text-slate-800 dark:text-slate-200">
+                      -   아    래   -
+                    </div>
+                    <div className="space-y-1 bg-purple-50/50 dark:bg-purple-950/30 p-2.5 rounded-lg border border-purple-100 dark:border-purple-900/40">
+                      <p><strong>일시 :</strong> {formatInterviewNoticeDate(selectedApplicant.interviews?.[0]?.scheduledTime)}</p>
+                      <p><strong>장소 :</strong> {selectedApplicant.interviews?.[0]?.location || '서울시 금천구 가산디지털2로 101, 한라원앤원타워 B동 1701호'}</p>
+                    </div>
+                    <p className="text-[10px] text-slate-400">사무실 현관 앞에 도착하시면 연락 주시기 바랍니다. 안내해 드리겠습니다.</p>
+                  </div>
                 </div>
               </div>
 
@@ -1087,11 +1253,19 @@ export default function ApplicantsView() {
                   </div>
                 </div>
 
-                <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-rose-200/80 text-xs space-y-1 text-slate-700 dark:text-slate-300">
+                <div className="p-3.5 bg-white dark:bg-slate-900 rounded-xl border border-rose-200/80 text-xs space-y-2 text-slate-700 dark:text-slate-300 leading-relaxed font-sans">
                   <div className="font-bold text-rose-600">[태일씨앤티] 입문교육 안내</div>
-                  <div>일시: {selectedApplicant.joinDate ? new Date(selectedApplicant.joinDate).toISOString().split('T')[0] : '2026-11-01'} 오전 10:00</div>
-                  <div>장소: {selectedApplicant.siteName || (sites[0]?.name ?? '평택 P5 RC공사 2공구')} 현장사무실</div>
-                  <div>문의: 010-1234-5678 (인사채용팀)</div>
+                  <div className="text-[11px] text-slate-600 dark:text-slate-300 space-y-2">
+                    <p>안녕하세요.</p>
+                    <p>신규입사자 입문교육(OJT) 일정을 아래와 같이 안내드립니다.</p>
+                    <div className="space-y-1 bg-rose-50/50 dark:bg-rose-950/30 p-2.5 rounded-lg border border-rose-100 dark:border-rose-900/40">
+                      <p><strong>교육 일정:</strong> {formatOnboardingNoticeDate(selectedApplicant.joinDate)}</p>
+                      <p><strong>교육 장소:</strong> 서울특별시 금천구 가산디지털2로 101, 한라원앤원 타워 B동 17층 1701호</p>
+                      <p><strong>집합 시간:</strong> 오전 0시 00분까지 도착</p>
+                    </div>
+                    <p className="text-[10px] text-slate-400">원활한 교육 진행을 위해 집합 시간을 반드시 준수해 주시기 바랍니다.</p>
+                    <p>감사합니다.</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1210,18 +1384,23 @@ export default function ApplicantsView() {
               </div>
 
               <div>
-                <label className="font-bold text-slate-600 dark:text-slate-400 block mb-1">
-                  열람 비밀번호 (선택 - 보안 잠금용)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-400 block text-xs">
+                    열람 보안 비밀번호 (기본 암호화: 1111)
+                  </label>
+                  <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800">
+                    기본 암호화 적용됨
+                  </span>
+                </div>
                 <input
                   type="password"
-                  placeholder="미입력 시 비밀번호 없이 열람 가능"
+                  placeholder="비밀번호 (기본: 1111)"
                   value={personalityPassword}
                   onChange={(e) => setPersonalityPassword(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600 font-mono"
                 />
                 <p className="text-[11px] text-slate-400 mt-1">
-                  비밀번호를 설정하면 면접평가표 관리 탭에서 비밀번호를 입력해야만 열람할 수 있습니다.
+                  결과표는 기본적으로 &apos;1111&apos;로 우선 암호화되어 안전하게 보관됩니다. 필요 시 변경하실 수 있습니다.
                 </p>
               </div>
 

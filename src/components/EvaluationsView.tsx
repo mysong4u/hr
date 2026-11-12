@@ -49,8 +49,8 @@ export default function EvaluationsView() {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [evalPassword, setEvalPassword] = useState<string>('');
-  const [evalPasswordConfirm, setEvalPasswordConfirm] = useState<string>('');
+  const [evalPassword, setEvalPassword] = useState<string>('1111');
+  const [evalPasswordConfirm, setEvalPasswordConfirm] = useState<string>('1111');
   const [selectedAuth, setSelectedAuth] = useState<string>('면접관 + 인사담당자');
 
   // View modal state (with password prompt)
@@ -263,7 +263,9 @@ export default function EvaluationsView() {
       alert('면접평가표 파일을 드래그하거나 [파일 선택] 버튼으로 선택해주세요.');
       return;
     }
-    if (evalPassword && evalPassword !== evalPasswordConfirm) {
+    const finalPassword = evalPassword.trim() || '1111';
+
+    if (evalPassword && evalPasswordConfirm && evalPassword !== evalPasswordConfirm) {
       alert('비밀번호와 비밀번호 확인이 일치하지 않습니다.');
       return;
     }
@@ -274,7 +276,7 @@ export default function EvaluationsView() {
         formData.append('file', selectedUploadFile);
         formData.append('applicantId', targetApplicantId);
         formData.append('type', 'interviewEval');
-        if (evalPassword) formData.append('password', evalPassword);
+        formData.append('password', finalPassword);
         if (selectedAuth) formData.append('auth', selectedAuth);
 
         const res = await fetch('/api/files/upload', {
@@ -293,7 +295,7 @@ export default function EvaluationsView() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             interviewEvalFile: evalFile,
-            interviewEvalPassword: evalPassword || null,
+            interviewEvalPassword: finalPassword,
             interviewEvalAuth: selectedAuth,
           }),
         });
@@ -309,10 +311,10 @@ export default function EvaluationsView() {
       setEvalFile('');
       setSelectedUploadFile(null);
       setSelectedFileSize(null);
-      setEvalPassword('');
-      setEvalPasswordConfirm('');
+      setEvalPassword('1111');
+      setEvalPasswordConfirm('1111');
       fetchApplicants();
-      alert('면접평가표 파일 및 보안 설정이 완료되었습니다.');
+      alert('면접평가표 파일이 기본 비밀번호(1111)로 안전하게 암호화되어 등록되었습니다.');
     } catch (e) {
       console.error(e);
       alert('서버 통신 중 오류가 발생했습니다.');
@@ -829,14 +831,19 @@ export default function EvaluationsView() {
 
               {/* 2. Password Configuration */}
               <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                <label className="font-bold text-slate-700 dark:text-slate-300 block">
-                  2. 열람 비밀번호 설정 (임의 설정 가능)
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block">
+                    2. 열람 보안 비밀번호 설정 (기본 암호화: 1111)
+                  </label>
+                  <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-md border border-blue-200 dark:border-blue-800">
+                    기본 암호화 적용됨
+                  </span>
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <input
                       type="password"
-                      placeholder="비밀번호"
+                      placeholder="비밀번호 (기본: 1111)"
                       value={evalPassword}
                       onChange={(e) => setEvalPassword(e.target.value)}
                       className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white"
@@ -845,7 +852,7 @@ export default function EvaluationsView() {
                   <div>
                     <input
                       type="password"
-                      placeholder="비밀번호 확인"
+                      placeholder="비밀번호 확인 (기본: 1111)"
                       value={evalPasswordConfirm}
                       onChange={(e) => setEvalPasswordConfirm(e.target.value)}
                       className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white"
@@ -853,7 +860,7 @@ export default function EvaluationsView() {
                   </div>
                 </div>
                 <p className="text-[10px] text-slate-400">
-                  비밀번호를 설정하면 열람할 때 암호 확인을 거치며, 미입력 시 비밀번호 없이 열람됩니다.
+                  면접평가표는 기본적으로 &apos;1111&apos;로 우선 암호화되어 안전하게 보관됩니다. 필요 시 변경하실 수 있습니다.
                 </p>
               </div>
 

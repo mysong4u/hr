@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ['pdf-parse'],
+  serverExternalPackages: ['@prisma/client', 'pdf-parse'],
   allowedDevOrigins: [
     '192.168.10.122',
     'localhost:3000',

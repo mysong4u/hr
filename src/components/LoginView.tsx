@@ -30,16 +30,22 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
         body: JSON.stringify({ name: name.trim(), password: password.trim() }),
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch (jsonErr) {
+        console.error('Failed to parse response json:', jsonErr);
+      }
+
       if (res.ok && data.success) {
         localStorage.setItem('taeil_user', JSON.stringify(data.user));
         onLoginSuccess(data.user);
       } else {
-        setError(data.error || '로그인에 실패했습니다.');
+        setError(data.error || `로그인 처리에 실패했습니다. (서버 응답 코드: ${res.status})`);
       }
-    } catch (err) {
-      console.error(err);
-      setError('서버 연결 중 오류가 발생했습니다.');
+    } catch (err: any) {
+      console.error('Login request network error:', err);
+      setError('서버 연결 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
       setLoading(false);
     }
