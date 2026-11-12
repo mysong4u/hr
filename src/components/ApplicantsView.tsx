@@ -26,6 +26,7 @@ import {
   Trash2,
   FileSpreadsheet,
   Check,
+  RotateCcw,
 } from 'lucide-react';
 import {
   exportApplicantsToExcel,
@@ -152,6 +153,10 @@ export default function ApplicantsView() {
   const [editingMemo, setEditingMemo] = useState('');
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
 
+  // Directly Editable Notice SMS Text State
+  const [customInterviewText, setCustomInterviewText] = useState<string>('');
+  const [customOnboardingText, setCustomOnboardingText] = useState<string>('');
+
   const formatInterviewDateTime = (dateStr?: string | null) => {
     if (!dateStr) return '2026년 10월 23일(금) 오전 10:00';
     const d = new Date(dateStr);
@@ -192,11 +197,55 @@ export default function ApplicantsView() {
     return `${y}.${m}.${day} ${week}요일`;
   };
 
+  const generateInterviewSMS = (app: Applicant) => {
+    const interviewDate = formatInterviewNoticeDate(app.interviews?.[0]?.scheduledTime);
+    const location =
+      app.interviews?.[0]?.location ||
+      '서울시 금천구 가산디지털2로 101, 한라원앤원타워 B동 1701호';
+
+    return `(주)태일씨앤티입니다.
+
+아래와 같이 면접 일정을 안내드리오니, 확인하시어 늦지 않게 참석해 주시기 바랍니다.
+부득이하게 일정 조정이 필요하신 경우 사전에 연락 부탁드립니다.
+
+감사합니다.
+
+ 
+              -   아    래   -
+
+일시 : ${interviewDate}
+
+장소 : ${location}
+
+사무실 현관 앞에 도착하시면 연락 주시기 바랍니다. 안내해 드리겠습니다.`;
+  };
+
+  const generateOnboardingSMS = (app: Applicant, customDateStr?: string | null) => {
+    const targetDate = formatOnboardingNoticeDate(customDateStr !== undefined ? customDateStr : app.joinDate);
+
+    return `안녕하세요.
+
+신규입사자 입문교육(OJT) 일정을 아래와 같이 안내드립니다.
+
+교육 일정: ${targetDate}
+
+교육 장소: 서울특별시 금천구 가산디지털2로 101, 한라원앤원 타워 B동 17층 1701호
+
+집합 시간: 오전 0시 00분까지 도착
+
+원활한 교육 진행을 위해 집합 시간을 반드시 준수해 주시기 바랍니다.
+
+감사합니다.`;
+  };
+
   const openDetailModal = (app: Applicant) => {
     setSelectedApplicant(app);
     setEditingMemo(app.memo || '');
-    setDetailJoinDate(app.joinDate ? app.joinDate.split('T')[0] : '');
+    const jDate = app.joinDate ? app.joinDate.split('T')[0] : '';
+    setDetailJoinDate(jDate);
     setDetailSiteName(app.siteName || '');
+    setCustomInterviewText(generateInterviewSMS(app));
+    setCustomOnboardingText(generateOnboardingSMS(app, jDate));
   };
 
   const getDisplayFileName = (value?: string | null, fallback = '') => {
@@ -393,6 +442,7 @@ export default function ApplicantsView() {
         };
         setSelectedApplicant(updated);
         setApplicants((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+        setCustomOnboardingText(generateOnboardingSMS(updated, detailJoinDate));
         showCopyFeedback('채용 확정 일 및 채용 현장이 성공적으로 저장되었습니다.');
       } else {
         const err = await res.json().catch(() => ({}));
@@ -467,50 +517,15 @@ export default function ApplicantsView() {
 
   // Format Interview SMS message
   const handleCopyInterviewSMS = (app: Applicant) => {
-    const interviewDate = formatInterviewNoticeDate(app.interviews?.[0]?.scheduledTime);
-    const location =
-      app.interviews?.[0]?.location ||
-      '서울시 금천구 가산디지털2로 101, 한라원앤원타워 B동 1701호';
-
-    const msg = `(주)태일씨앤티입니다.
-
-아래와 같이 면접 일정을 안내드리오니, 확인하시어 늦지 않게 참석해 주시기 바랍니다.
-부득이하게 일정 조정이 필요하신 경우 사전에 연락 부탁드립니다.
-
-감사합니다.
-
- 
-              -   아    래   -
-
-일시 : ${interviewDate}
-
-장소 : ${location}
-
-사무실 현관 앞에 도착하시면 연락 주시기 바랍니다. 안내해 드리겠습니다.`;
-
-    navigator.clipboard.writeText(msg);
+    const textToCopy = customInterviewText.trim() || generateInterviewSMS(app);
+    navigator.clipboard.writeText(textToCopy);
     showCopyFeedback('면접 일정 안내 문구가 클립보드에 복사되었습니다.');
   };
 
   // Format Onboarding SMS message (Page 10 in PDF)
   const handleCopyOnboardingSMS = (app: Applicant) => {
-    const targetDate = formatOnboardingNoticeDate(app.joinDate);
-
-    const msg = `안녕하세요.
-
-신규입사자 입문교육(OJT) 일정을 아래와 같이 안내드립니다.
-
-교육 일정: ${targetDate}
-
-교육 장소: 서울특별시 금천구 가산디지털2로 101, 한라원앤원 타워 B동 17층 1701호
-
-집합 시간: 오전 0시 00분까지 도착
-
-원활한 교육 진행을 위해 집합 시간을 반드시 준수해 주시기 바랍니다.
-
-감사합니다.`;
-
-    navigator.clipboard.writeText(msg);
+    const textToCopy = customOnboardingText.trim() || generateOnboardingSMS(app, detailJoinDate || app.joinDate);
+    navigator.clipboard.writeText(textToCopy);
     showCopyFeedback('입문교육 안내 문구가 클립보드에 복사되었습니다.');
   };
 
@@ -1173,14 +1188,26 @@ export default function ApplicantsView() {
                     <Calendar className="w-5 h-5 text-purple-600 shrink-0" />
                     <div>
                       <h4 className="text-sm font-bold text-purple-900 dark:text-purple-200">
-                        면접 일정 확정 및 알림 전송 (문자천사 연동)
+                        면접 일정 안내 (직접 수정 가능)
                       </h4>
                       <p className="text-xs text-purple-700 dark:text-purple-400">
-                        면접 안내 문자를 복사하여 문자천사(munja1004.co.kr) 사이트에서 바로 발송할 수 있습니다.
+                        문자 내용을 직접 수정하신 후 복사하여 문자천사 사이트에서 바로 발송할 수 있습니다.
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomInterviewText(generateInterviewSMS(selectedApplicant));
+                        showCopyFeedback('면접 일정 안내 문구가 기본 표준 양식으로 초기화되었습니다.');
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-purple-200 dark:border-purple-700 text-slate-600 dark:text-slate-300 hover:bg-purple-50 dark:hover:bg-slate-700 text-xs font-semibold rounded-xl cursor-pointer transition-colors"
+                      title="기본 표준 문구로 되돌리기"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      기본 문구 초기화
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleCopyInterviewSMS(selectedApplicant)}
@@ -1200,43 +1227,57 @@ export default function ApplicantsView() {
                   </div>
                 </div>
 
-                <div className="p-3.5 bg-white dark:bg-slate-900 rounded-xl border border-purple-200/80 text-xs space-y-2 text-slate-700 dark:text-slate-300 leading-relaxed font-sans">
-                  <div className="font-bold text-purple-600">[태일씨앤티] 면접 일정 안내</div>
-                  <div className="text-[11px] text-slate-600 dark:text-slate-300 space-y-2">
-                    <p>(주)태일씨앤티입니다.</p>
-                    <p>
-                      아래와 같이 면접 일정을 안내드리오니, 확인하시어 늦지 않게 참석해 주시기 바랍니다.<br />
-                      부득이하게 일정 조정이 필요하신 경우 사전에 연락 부탁드립니다.
-                    </p>
-                    <p>감사합니다.</p>
-                    <div className="py-2 text-center font-bold text-slate-800 dark:text-slate-200">
-                      -   아    래   -
-                    </div>
-                    <div className="space-y-1 bg-purple-50/50 dark:bg-purple-950/30 p-2.5 rounded-lg border border-purple-100 dark:border-purple-900/40">
-                      <p><strong>일시 :</strong> {formatInterviewNoticeDate(selectedApplicant.interviews?.[0]?.scheduledTime)}</p>
-                      <p><strong>장소 :</strong> {selectedApplicant.interviews?.[0]?.location || '서울시 금천구 가산디지털2로 101, 한라원앤원타워 B동 1701호'}</p>
-                    </div>
-                    <p className="text-[10px] text-slate-400">사무실 현관 앞에 도착하시면 연락 주시기 바랍니다. 안내해 드리겠습니다.</p>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs px-1">
+                    <span className="font-bold text-purple-900 dark:text-purple-300">
+                      [태일씨앤티] 면접 일정 안내 문구 편집
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      총 {customInterviewText.length}자
+                    </span>
                   </div>
+                  <textarea
+                    rows={10}
+                    value={customInterviewText}
+                    onChange={(e) => setCustomInterviewText(e.target.value)}
+                    placeholder="면접 안내 문구를 직접 입력하거나 수정하세요..."
+                    className="w-full p-3.5 rounded-xl border border-purple-200 dark:border-purple-800 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-100 font-sans leading-relaxed focus:outline-purple-600 focus:ring-1 focus:ring-purple-500 shadow-inner resize-y"
+                  />
+                  <p className="text-[11px] text-purple-700/80 dark:text-purple-400/80 px-1">
+                    * 위 박스 안의 문구를 직접 수정하신 후 <strong>[문자 내용 복사]</strong> 버튼을 누르면 수정된 내용 그대로 복사됩니다.
+                  </p>
                 </div>
               </div>
 
               {/* 3. Onboarding & Munja1004 Integration */}
               <div className="p-5 rounded-2xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800/60 space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="flex items-center gap-2">
-                    <MessageSquare className="w-5 h-5 text-rose-600" />
+                    <MessageSquare className="w-5 h-5 text-rose-600 shrink-0" />
                     <div>
                       <h4 className="text-sm font-bold text-rose-900 dark:text-rose-200">
-                        입문교육 일정 안내 (문자천사 연동)
+                        입문교육 일정 안내 (직접 수정 가능)
                       </h4>
                       <p className="text-xs text-rose-700 dark:text-rose-400">
-                        문자 내용을 복사하여 문자천사(munja1004.co.kr) 사이트에서 바로 발송할 수 있습니다.
+                        문자 내용을 직접 수정하신 후 복사하여 문자천사 사이트에서 바로 발송할 수 있습니다.
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <button
+                      type="button"
+                      onClick={() => {
+                        setCustomOnboardingText(generateOnboardingSMS(selectedApplicant, detailJoinDate || selectedApplicant.joinDate));
+                        showCopyFeedback('입문교육 안내 문구가 기본 표준 양식으로 초기화되었습니다.');
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 text-slate-600 dark:text-slate-300 hover:bg-rose-50 dark:hover:bg-slate-700 text-xs font-semibold rounded-xl cursor-pointer transition-colors"
+                      title="기본 표준 문구로 되돌리기"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      기본 문구 초기화
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handleCopyOnboardingSMS(selectedApplicant)}
                       className="flex items-center gap-1.5 px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
                     >
@@ -1244,6 +1285,7 @@ export default function ApplicantsView() {
                       문자 내용 복사
                     </button>
                     <button
+                      type="button"
                       onClick={() => window.open('https://www.munja1004.co.kr/', '_blank')}
                       className="flex items-center gap-1.5 px-3.5 py-1.5 bg-white dark:bg-slate-800 border border-rose-300 text-rose-700 text-xs font-bold rounded-xl cursor-pointer"
                     >
@@ -1253,19 +1295,25 @@ export default function ApplicantsView() {
                   </div>
                 </div>
 
-                <div className="p-3.5 bg-white dark:bg-slate-900 rounded-xl border border-rose-200/80 text-xs space-y-2 text-slate-700 dark:text-slate-300 leading-relaxed font-sans">
-                  <div className="font-bold text-rose-600">[태일씨앤티] 입문교육 안내</div>
-                  <div className="text-[11px] text-slate-600 dark:text-slate-300 space-y-2">
-                    <p>안녕하세요.</p>
-                    <p>신규입사자 입문교육(OJT) 일정을 아래와 같이 안내드립니다.</p>
-                    <div className="space-y-1 bg-rose-50/50 dark:bg-rose-950/30 p-2.5 rounded-lg border border-rose-100 dark:border-rose-900/40">
-                      <p><strong>교육 일정:</strong> {formatOnboardingNoticeDate(selectedApplicant.joinDate)}</p>
-                      <p><strong>교육 장소:</strong> 서울특별시 금천구 가산디지털2로 101, 한라원앤원 타워 B동 17층 1701호</p>
-                      <p><strong>집합 시간:</strong> 오전 0시 00분까지 도착</p>
-                    </div>
-                    <p className="text-[10px] text-slate-400">원활한 교육 진행을 위해 집합 시간을 반드시 준수해 주시기 바랍니다.</p>
-                    <p>감사합니다.</p>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs px-1">
+                    <span className="font-bold text-rose-900 dark:text-rose-300">
+                      [태일씨앤티] 입문교육 안내 문구 편집
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      총 {customOnboardingText.length}자
+                    </span>
                   </div>
+                  <textarea
+                    rows={10}
+                    value={customOnboardingText}
+                    onChange={(e) => setCustomOnboardingText(e.target.value)}
+                    placeholder="입문교육 안내 문구를 직접 입력하거나 수정하세요..."
+                    className="w-full p-3.5 rounded-xl border border-rose-200 dark:border-rose-800 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-100 font-sans leading-relaxed focus:outline-rose-600 focus:ring-1 focus:ring-rose-500 shadow-inner resize-y"
+                  />
+                  <p className="text-[11px] text-rose-700/80 dark:text-rose-400/80 px-1">
+                    * 위 박스 안의 문구를 직접 수정하신 후 <strong>[문자 내용 복사]</strong> 버튼을 누르면 수정된 내용 그대로 복사됩니다.
+                  </p>
                 </div>
               </div>
             </div>
