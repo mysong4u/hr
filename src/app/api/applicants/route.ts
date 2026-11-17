@@ -9,8 +9,12 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
     const jobRole = searchParams.get('jobRole');
     const siteName = searchParams.get('siteName');
+    const companyCodeParam = searchParams.get('companyCode');
 
     const where: any = {};
+    if (companyCodeParam && companyCodeParam.trim()) {
+      where.companyCode = companyCodeParam.trim().toLowerCase();
+    }
     if (jobId) where.jobId = jobId;
     if (status && status !== 'ALL') where.status = status;
     if (jobRole && jobRole !== 'ALL') where.jobRole = jobRole;
@@ -44,6 +48,7 @@ export async function POST(request: NextRequest) {
       name,
       email,
       phone,
+      companyCode,
       applyPath,
       jobRole,
       siteName,
@@ -85,6 +90,7 @@ export async function POST(request: NextRequest) {
         name,
         email: email || `${Date.now()}@example.com`,
         phone,
+        companyCode: (companyCode && companyCode.trim()) ? companyCode.trim().toLowerCase() : 'taeil',
         applyPath: applyPath || '사람인',
         jobRole: jobRole || '공사',
         siteName: siteName || '',

@@ -5,8 +5,13 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const yearParam = searchParams.get('year');
+    const companyCodeParam = searchParams.get('companyCode');
 
     let where: any = {};
+    if (companyCodeParam && companyCodeParam.trim()) {
+      where.companyCode = companyCodeParam.trim().toLowerCase();
+    }
+
     if (yearParam) {
       const year = parseInt(yearParam, 10);
       if (!isNaN(year)) {
@@ -38,7 +43,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, location, pmName, pmContact, status, createdAt, requirements } = body;
+    const { name, location, pmName, pmContact, status, createdAt, requirements, companyCode } = body;
 
     if (!name || !location) {
       return NextResponse.json({ error: '현장명과 위치는 필수입니다.' }, { status: 400 });
@@ -51,6 +56,7 @@ export async function POST(request: NextRequest) {
         pmName: pmName || '담당 PM',
         pmContact: pmContact || '',
         status: status || '진행중',
+        companyCode: (companyCode && companyCode.trim()) ? companyCode.trim().toLowerCase() : 'taeil',
         createdAt: createdAt ? new Date(createdAt) : new Date(),
         requirements: {
           create: Array.isArray(requirements)

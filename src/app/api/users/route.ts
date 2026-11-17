@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url);
+    const companyCodeParam = searchParams.get('companyCode');
+
+    const where: any = {};
+    if (companyCodeParam && companyCodeParam.trim()) {
+      where.companyCode = companyCodeParam.trim().toLowerCase();
+    }
+
     // If no users exist, seed default user
     const count = await prisma.user.count();
     if (count === 0) {
@@ -12,16 +20,20 @@ export async function GET() {
           department: '인사채용팀',
           role: '담당자',
           password: '1111',
+          companyCode: 'taeil',
         },
       });
     }
 
     const users = await prisma.user.findMany({
+      where,
       select: {
         id: true,
         name: true,
         department: true,
         role: true,
+        companyCode: true,
+        password: true,
         createdAt: true,
       },
       orderBy: { createdAt: 'asc' },
@@ -36,20 +48,24 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const { name, department, role, password } = await request.json();
+    const { name, department, role, password, companyCode } = await request.json();
 
     if (!name || !name.trim()) {
       return NextResponse.json({ error: '등록할 사용자 이름을 입력해 주세요.' }, { status: 400 });
     }
 
     const trimmedName = name.trim();
+    const cleanCompany = (companyCode && companyCode.trim()) ? companyCode.trim().toLowerCase() : 'taeil';
 
-    const existing = await prisma.user.findUnique({
-      where: { name: trimmedName },
+    const existing = await prisma.user.findFirst({
+      where: {
+        companyCode: cleanCompany,
+        name: trimmedName,
+      },
     });
 
     if (existing) {
-      return NextResponse.json({ error: '이미 등록되어 있는 사용자 이름입니다.' }, { status: 409 });
+      return NextResponse.json({ error: '해당 회사에 이미 등록되어 있는 사용자 이름입니다.' }, { status: 409 });
     }
 
     const newUser = await prisma.user.create({
@@ -58,6 +74,7 @@ export async function POST(request: NextRequest) {
         department: department || '인사채용팀',
         role: role || '담당자',
         password: password || '1111',
+        companyCode: cleanCompany,
       },
     });
 

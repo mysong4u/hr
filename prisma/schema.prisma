@@ -25,6 +25,7 @@ model Applicant {
   name                    String
   email                   String
   phone                   String
+  companyCode             String      @default("taeil")
   resumeUrl               String?     // 업로드된 파일 경로
   resumeText              String?     // 파싱된 텍스트
   status                  String      @default("APPLIED") // APPLIED, PERSONALITY_TEST_PENDING, PERSONALITY_TEST_COMPLETED, INTERVIEW_SCHEDULED, ACCEPTED, REJECTED, ONBOARDING_SCHEDULED
@@ -62,6 +63,15 @@ model Interview {
   updatedAt          DateTime  @updatedAt
 }
 
+model Company {
+  id          String   @id @default(uuid())
+  companyCode String   @unique     // 고유 회사 식별 코드 (예: taeil, angel, uimusic)
+  companyName String               // 회사명 (예: (주)태일씨앤티, 유아이뮤직)
+  plan        String   @default("프리미엄 (월 1,000원)")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 model Site {
   id           String            @id @default(uuid())
   name         String            // 현장명 (예: 평택 P5 RC공사 2공구)
@@ -69,6 +79,7 @@ model Site {
   pmName       String            // 담당 PM
   pmContact    String?           // 담당 PM 연락처
   status       String?           @default("진행중") // 진행상태 (진행중, 충원완료, 공사진행중, 착공준비, 보류 등)
+  companyCode  String            @default("taeil")
   requirements SiteRequirement[]
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
@@ -94,11 +105,14 @@ model Notification {
 }
 
 model User {
-  id         String   @id @default(uuid())
-  name       String   @unique     // 사용자 이름
-  department String   @default("인사채용팀")
-  role       String   @default("담당자")
-  password   String   @default("1111")
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id          String   @id @default(uuid())
+  name        String              // 사용자 이름
+  department  String   @default("인사채용팀")
+  role        String   @default("담당자")
+  password    String   @default("1111")
+  companyCode String   @default("taeil")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([companyCode, name])
 }
