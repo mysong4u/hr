@@ -19,7 +19,7 @@ try {
   if (dbUrl.startsWith('postgresql://') || dbUrl.startsWith('postgres://')) {
     console.log('🚀 Connecting to PostgreSQL and pushing database schema...');
     try {
-      execSync('npx prisma db push', { stdio: 'inherit' });
+      execSync('npx prisma db push --accept-data-loss', { stdio: 'inherit' });
     } catch (pushErr) {
       console.warn('⚠️ Prisma db push failed, fallback to generate:', pushErr.message);
       execSync('npx prisma generate', { stdio: 'inherit' });
