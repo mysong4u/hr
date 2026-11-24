@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+const DEFAULT_JOB_ROLES = ['공사', '안전', '공무', '품질', '기타'];
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -33,6 +35,26 @@ export async function GET(request: NextRequest) {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    // 모든 현장에 5가지 기본 직무(기타, 공무, 안전, 공사, 품질)가 누락 없이 존재하도록 보장
+    for (const site of sites) {
+      const existingRoles = new Set(site.requirements.map((r) => r.jobRole));
+      const missingRoles = DEFAULT_JOB_ROLES.filter((role) => !existingRoles.has(role));
+      if (missingRoles.length > 0) {
+        for (const role of missingRoles) {
+          const newReq = await prisma.siteRequirement.create({
+            data: {
+              siteId: site.id,
+              jobRole: role,
+              requiredCount: 0,
+              currentCount: 0,
+            },
+          });
+          site.requirements.push(newReq);
+        }
+      }
+    }
+
     return NextResponse.json(sites);
   } catch (error) {
     console.error('Failed to fetch sites:', error);
@@ -49,6 +71,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '현장명과 위치는 필수입니다.' }, { status: 400 });
     }
 
+    // 5대 기본 직무가 누락되지 않도록 통합
+    const reqList: { jobRole: string; requiredCount: number; currentCount: number }[] = [];
+    const inputReqs = Array.isArray(requirements) ? requirements : [];
+    const existingInputRoles = new Set(inputReqs.map((r: any) => r.jobRole));
+
+    for (const req of inputReqs) {
+      reqList.push({
+        jobRole: req.jobRole,
+        requiredCount: Number(req.requiredCount) || 0,
+        currentCount: Number(req.currentCount) || 0,
+      });
+    }
+
+    for (const defaultRole of DEFAULT_JOB_ROLES) {
+      if (!existingInputRoles.has(defaultRole)) {
+        reqList.push({
+          jobRole: defaultRole,
+          requiredCount: 0,
+          currentCount: 0,
+        });
+      }
+    }
+
     const site = await prisma.site.create({
       data: {
         name,
@@ -59,13 +104,7 @@ export async function POST(request: NextRequest) {
         companyCode: (companyCode && companyCode.trim()) ? companyCode.trim().toLowerCase() : 'taeil',
         createdAt: createdAt ? new Date(createdAt) : new Date(),
         requirements: {
-          create: Array.isArray(requirements)
-            ? requirements.map((req: any) => ({
-                jobRole: req.jobRole,
-                requiredCount: Number(req.requiredCount) || 0,
-                currentCount: Number(req.currentCount) || 0,
-              }))
-            : [],
+          create: reqList,
         },
       },
       include: { requirements: true },
@@ -95,13 +134,22 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Site not found' }, { status: 404 });
     }
 
-    // Update requirements
+    // Update or create requirements
     if (Array.isArray(requirements)) {
       for (const req of requirements) {
         if (req.id) {
           await prisma.siteRequirement.update({
             where: { id: req.id },
             data: {
+              requiredCount: Number(req.requiredCount) || 0,
+              currentCount: Number(req.currentCount) || 0,
+            },
+          });
+        } else if (req.jobRole) {
+          await prisma.siteRequirement.create({
+            data: {
+              siteId,
+              jobRole: req.jobRole,
               requiredCount: Number(req.requiredCount) || 0,
               currentCount: Number(req.currentCount) || 0,
             },

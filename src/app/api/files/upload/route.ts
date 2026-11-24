@@ -33,17 +33,80 @@ function getMimeType(filename: string): string {
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const file = formData.get('file');
     const applicantId = (formData.get('applicantId') as string | null) || null;
     const type = (formData.get('type') as string) || 'resume';
     const password = (formData.get('password') as string | null) || null;
     const auth = (formData.get('auth') as string | null) || null;
 
-    if (!file || typeof file === 'string' || typeof (file as any).arrayBuffer !== 'function') {
+    // 복수 파일(files) 및 단일 파일(file) 모두 수집
+    const allFileEntries = [
+      ...formData.getAll('files'),
+      ...formData.getAll('file'),
+    ];
+
+    const validFiles = allFileEntries.filter(
+      (f): f is File => !!f && typeof f !== 'string' && typeof (f as any).arrayBuffer === 'function'
+    );
+
+    if (validFiles.length === 0) {
       return NextResponse.json({ error: '유효한 파일이 첨부되지 않았습니다.' }, { status: 400 });
     }
 
-    const browserFile = file as File;
+    let updatedApplicant = null;
+
+    // 면접평가표인 경우: 최대 4개 파일까지 복수 파일 JSON 배열 페이로드로 저장
+    if (type === 'interviewEval') {
+      const targetFiles = validFiles.slice(0, 4);
+      const fileItems = [];
+
+      for (const f of targetFiles) {
+        const arrayBuf = await f.arrayBuffer();
+        const buffer = Buffer.from(arrayBuf);
+        const originalName = f.name || '면접평가표.pdf';
+        const mimeType = f.type || getMimeType(originalName);
+        fileItems.push({
+          name: originalName,
+          size: buffer.length,
+          type: mimeType,
+          data: buffer.toString('base64'),
+        });
+      }
+
+      const filePayload = JSON.stringify(fileItems);
+
+      if (applicantId && applicantId.trim()) {
+        try {
+          const updateData: any = {
+            interviewEvalFile: filePayload,
+          };
+          if (password !== null && password !== undefined) {
+            updateData.interviewEvalPassword = password || null;
+          }
+          if (auth) {
+            updateData.interviewEvalAuth = auth;
+          }
+          updatedApplicant = await prisma.applicant.update({
+            where: { id: applicantId.trim() },
+            data: updateData,
+            include: { interviews: true, job: true },
+          });
+        } catch (dbErr) {
+          console.error('Database update error in interviewEval upload:', dbErr);
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        count: fileItems.length,
+        originalName: fileItems[0]?.name || '면접평가표.pdf',
+        fileNames: fileItems.map((item) => item.name),
+        filePayload,
+        applicant: updatedApplicant,
+      });
+    }
+
+    // 이력서(resume) 및 인성검사(personality)는 단일 파일 처리
+    const browserFile = validFiles[0];
     const arrayBuf = await browserFile.arrayBuffer();
     const buffer = Buffer.from(arrayBuf);
     const originalName = browserFile.name || 'uploaded_file';
@@ -82,7 +145,6 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. PostgreSQL DB에 Base64 영구 저장 (TEXT 컬럼은 최대 1GB 지원)
-    let updatedApplicant = null;
     if (applicantId && applicantId.trim()) {
       try {
         const existingApplicant = await prisma.applicant.findUnique({
@@ -97,21 +159,6 @@ export async function POST(request: NextRequest) {
                 resumeUrl: filePayload,
                 ...(text ? { resumeText: text } : {}),
               },
-              include: { interviews: true, job: true },
-            });
-          } else if (type === 'interviewEval') {
-            const updateData: any = {
-              interviewEvalFile: filePayload,
-            };
-            if (password !== null && password !== undefined) {
-              updateData.interviewEvalPassword = password || null;
-            }
-            if (auth) {
-              updateData.interviewEvalAuth = auth;
-            }
-            updatedApplicant = await prisma.applicant.update({
-              where: { id: applicantId.trim() },
-              data: updateData,
               include: { interviews: true, job: true },
             });
           } else if (type === 'personality') {

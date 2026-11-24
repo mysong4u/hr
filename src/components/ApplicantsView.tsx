@@ -86,7 +86,50 @@ const PIPELINE_STEPS = [
   { id: 'REJECTED', label: '불합격', color: 'from-rose-600 to-red-700' },
 ];
 
-export default function ApplicantsView() {
+export function formatPhoneNumber(val: string): string {
+  const digits = val.replace(/[^0-9]/g, '').slice(0, 11);
+  if (digits.startsWith('02')) {
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 5) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+    if (digits.length <= 9) return `${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5)}`;
+    return `${digits.slice(0, 2)}-${digits.slice(2, 6)}-${digits.slice(6, 10)}`;
+  }
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  if (digits.length <= 10) return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7, 11)}`;
+}
+
+function getFormattedTimestamp(): string {
+  const now = new Date();
+  const YYYY = now.getFullYear();
+  const MM = String(now.getMonth() + 1).padStart(2, '0');
+  const DD = String(now.getDate()).padStart(2, '0');
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  return `${YYYY}-${MM}-${DD} ${hh}:${mm}`;
+}
+
+function attachMemoAuthor(memoText: string, authorName: string): string {
+  const raw = (memoText || '').trim();
+  if (!raw) return '';
+  const clean = raw.replace(/\s*\((?:작성자|수정자):[^)]+\)\s*$/g, '').trim();
+  if (!clean) return '';
+  return `${clean} (작성자: ${authorName} / ${getFormattedTimestamp()})`;
+}
+
+export default function ApplicantsView({ currentUser }: { currentUser?: { name?: string; [key: string]: any } | null } = {}) {
+  const getAuthorName = () => {
+    if (currentUser?.name) return currentUser.name;
+    try {
+      const saved = localStorage.getItem('taeil_user');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.name) return parsed.name;
+      }
+    } catch {}
+    return '관리자';
+  };
   const [applicants, setApplicants] = useState<Applicant[]>([]);
   const [sites, setSites] = useState<SiteItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -403,17 +446,20 @@ export default function ApplicantsView() {
   // Update Memo
   const handleSaveMemo = async () => {
     if (!selectedApplicant) return;
+    const author = getAuthorName();
+    const memoToSave = attachMemoAuthor(editingMemo, author);
     try {
       const res = await fetch(`/api/applicants/${selectedApplicant.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memo: editingMemo }),
+        body: JSON.stringify({ memo: memoToSave }),
       });
       if (res.ok) {
         const updated = await res.json();
         setApplicants((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
         setSelectedApplicant(updated);
-        showCopyFeedback('메모가 저장되었습니다.');
+        setEditingMemo(updated.memo || '');
+        showCopyFeedback('메모가 작성자/일시와 함께 저장되었습니다.');
       }
     } catch (e) {
       console.error(e);
@@ -556,12 +602,15 @@ export default function ApplicantsView() {
         }
       }
 
+      const author = getAuthorName();
+      const memoToSave = manualForm.memo?.trim() ? attachMemoAuthor(manualForm.memo, author) : '';
       const assignedSite = manualForm.siteName || (sites[0]?.name ?? '평택 P5 RC공사 2공구');
       const res = await fetch('/api/applicants', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...manualForm,
+          memo: memoToSave,
           siteName: assignedSite,
           status: 'APPLIED',
           resumeUrl: initialResumeUrl,
@@ -1133,6 +1182,9 @@ export default function ApplicantsView() {
                   rows={3}
                   className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-blue-600"
                 />
+                <div className="text-[11px] text-slate-400 dark:text-slate-500">
+                  💡 저장 버튼을 누르면 작성자 이름과 저장 일시가 자동으로 함께 기록됩니다.
+                </div>
               </div>
             </div>
 
@@ -1508,7 +1560,7 @@ export default function ApplicantsView() {
                     required
                     placeholder="010-0000-0000"
                     value={manualForm.phone}
-                    onChange={(e) => setManualForm({ ...manualForm, phone: e.target.value })}
+                    onChange={(e) => setManualForm({ ...manualForm, phone: formatPhoneNumber(e.target.value) })}
                     className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
                   />
                 </div>
@@ -1710,6 +1762,9 @@ export default function ApplicantsView() {
                   onChange={(e) => setManualForm({ ...manualForm, memo: e.target.value })}
                   className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-blue-600"
                 />
+                <div className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
+                  💡 등록 완료 시 작성자 이름과 등록 일시가 자동으로 함께 기록됩니다.
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">

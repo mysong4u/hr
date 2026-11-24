@@ -95,7 +95,7 @@ export default function TaeilATSApp() {
         {/* Scrollable Content View */}
         <main className="flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-950/50 pb-16">
           {currentTab === 'dashboard' && <DashboardView />}
-          {currentTab === 'applicants' && <ApplicantsView />}
+          {currentTab === 'applicants' && <ApplicantsView currentUser={currentUser} />}
           {currentTab === 'sites' && <SiteManagementView />}
           {currentTab === 'evaluations' && <EvaluationsView />}
           {currentTab === 'settings' && <SettingsView />}

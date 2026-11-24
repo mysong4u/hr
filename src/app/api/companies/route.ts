@@ -127,6 +127,8 @@ export async function POST(request: NextRequest) {
               { jobRole: '공사', requiredCount: 5, currentCount: 0 },
               { jobRole: '안전', requiredCount: 2, currentCount: 0 },
               { jobRole: '공무', requiredCount: 2, currentCount: 0 },
+              { jobRole: '품질', requiredCount: 1, currentCount: 0 },
+              { jobRole: '기타', requiredCount: 1, currentCount: 0 },
             ],
           },
         },

@@ -29,9 +29,30 @@ function getMimeType(filename: string): string {
   }
 }
 
-// DB에 저장된 파일 필드(JSON 포맷 또는 일반 문자열) 파싱
-function parseFileField(fieldValue?: string | null, fallbackName = 'file') {
+// DB에 저장된 파일 필드(JSON 배열/객체 포맷 또는 일반 문자열) 파싱
+function parseFileField(fieldValue?: string | null, fallbackName = 'file', targetIndex = 0) {
   if (!fieldValue || !fieldValue.trim()) return null;
+
+  // 0. 복수 파일 JSON 배열 포맷 ([{ name, size, type, data: base64 }, ...])
+  if (fieldValue.startsWith('[') && fieldValue.endsWith(']')) {
+    try {
+      const parsedArray = JSON.parse(fieldValue);
+      if (Array.isArray(parsedArray) && parsedArray.length > 0) {
+        const idx = (targetIndex >= 0 && targetIndex < parsedArray.length) ? targetIndex : 0;
+        const item = parsedArray[idx];
+        if (item && item.data) {
+          const rawBase64 = item.data.includes('base64,')
+            ? item.data.split('base64,')[1]
+            : item.data;
+          return {
+            name: item.name || fallbackName,
+            type: item.type || getMimeType(item.name || fallbackName),
+            buffer: Buffer.from(rawBase64, 'base64'),
+          };
+        }
+      }
+    } catch {}
+  }
 
   // 1. JSON 포맷 ({ name, size, type, data: base64 })
   if (fieldValue.startsWith('{') && fieldValue.endsWith('}')) {
@@ -95,6 +116,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const applicantId = searchParams.get('applicantId');
     const type = searchParams.get('type') || 'resume';
+    const fileIndexParam = searchParams.get('fileIndex');
+    const targetIndex = fileIndexParam ? Math.max(0, parseInt(fileIndexParam, 10) || 0) : 0;
 
     if (!applicantId) {
       return NextResponse.json({ error: '필수 매개변수(applicantId)가 누락되었습니다.' }, { status: 400 });
@@ -119,7 +142,8 @@ export async function GET(request: NextRequest) {
 
     const parsed = parseFileField(
       rawField,
-      type === 'resume' ? `이력서_${applicant.name}.pdf` : `면접평가표_${applicant.name}.pdf`
+      type === 'resume' ? `이력서_${applicant.name}.pdf` : `면접평가표_${applicant.name}.pdf`,
+      targetIndex
     );
 
     // 1. DB에 저장된 Base64 원본 바이너리가 있는 경우 즉시 반환 (Netlify/서버리스 100% 대응)

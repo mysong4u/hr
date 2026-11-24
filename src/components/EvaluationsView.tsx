@@ -36,16 +36,50 @@ interface Applicant {
 // In-memory cache for uploaded file data (handles large files beyond sessionStorage limits)
 const fileDataMemoryCache = new Map<string, string>();
 
+export interface ParsedEvalFile {
+  name: string;
+  size?: number | string;
+  type?: string;
+}
+
+export function parseEvalFileList(value?: string | null, fallback = ''): ParsedEvalFile[] {
+  if (!value || !value.trim()) return fallback ? [{ name: fallback }] : [];
+  // 배열 JSON
+  if (value.startsWith('[') && value.endsWith(']')) {
+    try {
+      const arr = JSON.parse(value);
+      if (Array.isArray(arr) && arr.length > 0) {
+        return arr.map((item) => ({
+          name: item.name || '면접평가표.pdf',
+          size: item.size,
+          type: item.type,
+        }));
+      }
+    } catch {}
+  }
+  // 단일 객체 JSON
+  if (value.startsWith('{') && value.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed.name) return [{ name: parsed.name, size: parsed.size, type: parsed.type }];
+    } catch {}
+  }
+  // Data URL
+  if (value.startsWith('data:')) {
+    const m = value.match(/name=([^;]+)/);
+    if (m) return [{ name: decodeURIComponent(m[1]) }];
+  }
+  return [{ name: value }];
+}
+
 export default function EvaluationsView() {
   const [applicants, setApplicants] = useState<Applicant[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Upload modal state
+  // Upload modal state (최대 4개 파일 업로드 지원)
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [targetApplicantId, setTargetApplicantId] = useState<string>('');
-  const [evalFile, setEvalFile] = useState<string>('');
-  const [selectedUploadFile, setSelectedUploadFile] = useState<File | null>(null);
-  const [selectedFileSize, setSelectedFileSize] = useState<string | null>(null);
+  const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -81,18 +115,10 @@ export default function EvaluationsView() {
   };
 
   const getDisplayFileName = (value?: string | null, fallback = '') => {
-    if (!value) return fallback;
-    if (value.startsWith('{') && value.endsWith('}')) {
-      try {
-        const parsed = JSON.parse(value);
-        if (parsed.name) return parsed.name;
-      } catch {}
-    }
-    if (value.startsWith('data:')) {
-      const m = value.match(/name=([^;]+)/);
-      if (m) return decodeURIComponent(m[1]);
-    }
-    return value;
+    const list = parseEvalFileList(value, fallback);
+    if (list.length === 0) return fallback;
+    if (list.length === 1) return list[0].name;
+    return `${list[0].name} 외 ${list.length - 1}건`;
   };
 
   const fetchApplicants = async () => {
@@ -180,36 +206,39 @@ export default function EvaluationsView() {
     }
   };
 
-  // File Handlers for Dropzone and File Input
-  const handleFile = (file: File) => {
-    setSelectedUploadFile(file);
-    setEvalFile(file.name);
-    const sizeInKb = (file.size / 1024).toFixed(1);
-    const sizeStr =
-      file.size > 1024 * 1024
-        ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
-        : `${sizeInKb} KB`;
-    setSelectedFileSize(sizeStr);
+  const formatFileSize = (bytes: number) => {
+    if (bytes > 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  };
 
-    // Save uploaded file DataURL to sessionStorage for instant real download
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      if (result) {
-        try {
-          sessionStorage.setItem(`taeil_file_data_${file.name}`, result);
-        } catch (err) {
-          console.warn('SessionStorage quota exceeded', err);
-        }
+  // File Handlers for Multi-file Dropzone and File Input (Up to 4 files)
+  const handleAddFiles = (newFiles: FileList | File[]) => {
+    const incoming = Array.from(newFiles);
+    if (incoming.length === 0) return;
+
+    setSelectedUploadFiles((prev) => {
+      const remainingSlots = 4 - prev.length;
+      if (remainingSlots <= 0) {
+        alert('면접평가표 파일은 최대 4개까지만 업로드할 수 있습니다.');
+        return prev;
       }
-    };
-    reader.readAsDataURL(file);
+      if (incoming.length > remainingSlots) {
+        alert(`면접평가표 파일은 최대 4개까지만 업로드할 수 있습니다. 추가 ${remainingSlots}개 파일만 등록됩니다.`);
+        return [...prev, ...incoming.slice(0, remainingSlots)];
+      }
+      return [...prev, ...incoming];
+    });
+  };
+
+  const handleRemoveUploadFile = (index: number) => {
+    setSelectedUploadFiles((prev) => prev.filter((_, idx) => idx !== index));
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      handleFile(e.target.files[0]);
+    if (e.target.files && e.target.files.length > 0) {
+      handleAddFiles(e.target.files);
     }
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -229,19 +258,20 @@ export default function EvaluationsView() {
     e.stopPropagation();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleFile(e.dataTransfer.files[0]);
+      handleAddFiles(e.dataTransfer.files);
     }
   };
 
-  // Real Browser Download for Evaluation Sheet (Same identical content as uploaded)
-  const handleDownloadEvalFile = (applicant: Applicant) => {
-    const rawFileName = getDisplayFileName(
+  // Real Browser Download for Evaluation Sheet (Same identical content as uploaded, supports multi-files)
+  const handleDownloadEvalFile = (applicant: Applicant, fileIndex = 0, targetFileName?: string) => {
+    const files = parseEvalFileList(
       applicant.interviewEvalFile,
       `면접평가표_${applicant.name}.pdf`
     );
+    const rawFileName = targetFileName || files[fileIndex]?.name || `면접평가표_${applicant.name}.pdf`;
 
     // 1. Download directly from server storage API (exact identical file uploaded)
-    const downloadUrl = `/api/files/download?applicantId=${applicant.id}&type=interviewEval`;
+    const downloadUrl = `/api/files/download?applicantId=${applicant.id}&type=interviewEval&fileIndex=${fileIndex}`;
     const link = document.createElement('a');
     link.href = downloadUrl;
     link.download = rawFileName;
@@ -253,14 +283,14 @@ export default function EvaluationsView() {
     setShowInlinePreview(true);
   };
 
-  // Submit evaluation upload (Page 16)
+  // Submit evaluation upload (Page 16 - Supports up to 4 files)
   const handleSaveUpload = async () => {
     if (!targetApplicantId) {
       alert('대상 지원자를 선택해주세요.');
       return;
     }
-    if (!evalFile.trim()) {
-      alert('면접평가표 파일을 드래그하거나 [파일 선택] 버튼으로 선택해주세요.');
+    if (selectedUploadFiles.length === 0) {
+      alert('면접평가표 파일을 드래그하거나 [파일 선택] 버튼으로 최소 1개 이상(최대 4개) 선택해주세요.');
       return;
     }
     const finalPassword = evalPassword.trim() || '1111';
@@ -271,49 +301,31 @@ export default function EvaluationsView() {
     }
 
     try {
-      if (selectedUploadFile) {
-        const formData = new FormData();
-        formData.append('file', selectedUploadFile);
-        formData.append('applicantId', targetApplicantId);
-        formData.append('type', 'interviewEval');
-        formData.append('password', finalPassword);
-        if (selectedAuth) formData.append('auth', selectedAuth);
+      const formData = new FormData();
+      selectedUploadFiles.forEach((file) => {
+        formData.append('files', file);
+      });
+      formData.append('applicantId', targetApplicantId);
+      formData.append('type', 'interviewEval');
+      formData.append('password', finalPassword);
+      if (selectedAuth) formData.append('auth', selectedAuth);
 
-        const res = await fetch('/api/files/upload', {
-          method: 'POST',
-          body: formData,
-        });
+      const res = await fetch('/api/files/upload', {
+        method: 'POST',
+        body: formData,
+      });
 
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({}));
-          alert(errorData.error || '저장 중 오류가 발생했습니다.');
-          return;
-        }
-      } else {
-        const res = await fetch(`/api/applicants/${targetApplicantId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            interviewEvalFile: evalFile,
-            interviewEvalPassword: finalPassword,
-            interviewEvalAuth: selectedAuth,
-          }),
-        });
-
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({}));
-          alert(errorData.error || '저장 중 오류가 발생했습니다.');
-          return;
-        }
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        alert(errorData.error || '저장 중 오류가 발생했습니다.');
+        return;
       }
 
       setIsUploadModalOpen(false);
-      setEvalFile('');
-      setSelectedUploadFile(null);
-      setSelectedFileSize(null);
+      setSelectedUploadFiles([]);
       setEvalPassword('1111');
       setEvalPasswordConfirm('1111');
-      fetchApplicants();
+      await fetchApplicants();
       alert('면접평가표 파일이 기본 비밀번호(1111)로 안전하게 암호화되어 등록되었습니다.');
     } catch (e) {
       console.error(e);
@@ -340,8 +352,7 @@ export default function EvaluationsView() {
             if (applicants.length > 0 && !targetApplicantId) {
               setTargetApplicantId(applicants[0].id);
             }
-            setEvalFile('');
-            setSelectedFileSize(null);
+            setSelectedUploadFiles([]);
             setIsUploadModalOpen(true);
           }}
           className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md shadow-blue-500/20 text-xs transition-all cursor-pointer"
@@ -490,8 +501,7 @@ export default function EvaluationsView() {
                           <button
                             onClick={() => {
                               setTargetApplicantId(app.id);
-                              setEvalFile('');
-                              setSelectedFileSize(null);
+                              setSelectedUploadFiles([]);
                               setIsUploadModalOpen(true);
                             }}
                             className="px-3 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 text-xs font-semibold cursor-pointer"
@@ -629,24 +639,43 @@ export default function EvaluationsView() {
                 </div>
 
                 <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5 font-bold text-slate-700 dark:text-slate-200">
-                      <FileText className="w-4 h-4 text-blue-600" />
-                      <span className="truncate max-w-[200px]">
-                        {getDisplayFileName(
-                          viewingApplicant.interviewEvalFile,
-                          `면접평가표_${viewingApplicant.name}.pdf`
-                        )}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDownloadEvalFile(viewingApplicant)}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs text-xs flex items-center gap-1.5 transition-all cursor-pointer"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      평가표 다운로드 및 보기
-                    </button>
+                  <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-700">
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      첨부된 면접평가표 파일 목록 ({parseEvalFileList(viewingApplicant.interviewEvalFile).length}개)
+                    </span>
+                    <span className="text-[11px] text-slate-400">각 파일을 개별 다운로드할 수 있습니다</span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {parseEvalFileList(
+                      viewingApplicant.interviewEvalFile,
+                      `면접평가표_${viewingApplicant.name}.pdf`
+                    ).map((f, fIdx) => (
+                      <div
+                        key={fIdx}
+                        className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 mr-3">
+                          <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                          <div className="truncate">
+                            <span className="font-bold text-slate-800 dark:text-white truncate block text-xs">
+                              {f.name}
+                            </span>
+                            {f.size ? (
+                              <span className="text-[10px] text-slate-400 block">{formatFileSize(Number(f.size))}</span>
+                            ) : null}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadEvalFile(viewingApplicant, fIdx, f.name)}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-xs text-xs flex items-center gap-1.5 transition-all cursor-pointer shrink-0"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          다운로드
+                        </button>
+                      </div>
+                    ))}
                   </div>
 
                   {downloadSuccessMessage && (
@@ -742,16 +771,28 @@ export default function EvaluationsView() {
                 </select>
               </div>
 
-              {/* 1. Real File Upload Dropzone */}
+              {/* 1. Real File Upload Dropzone (Supports up to 4 files) */}
               <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  1. 면접평가표 파일 첨부 <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block">
+                    1. 면접평가표 파일 첨부 (최대 4개) <span className="text-rose-500">*</span>
+                  </label>
+                  <span
+                    className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                      selectedUploadFiles.length === 4
+                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                        : 'bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400'
+                    }`}
+                  >
+                    첨부된 파일: {selectedUploadFiles.length} / 4개
+                  </span>
+                </div>
 
-                {/* Hidden Real File Input */}
+                {/* Hidden Real File Input with multiple attribute */}
                 <input
                   ref={fileInputRef}
                   type="file"
+                  multiple
                   accept=".pdf,.doc,.docx,.hwp,.hwpx,.xlsx,.xls,.png,.jpg,.jpeg"
                   onChange={handleFileChange}
                   className="hidden"
@@ -763,67 +804,83 @@ export default function EvaluationsView() {
                   onDragLeave={handleDragLeave}
                   onDrop={handleDrop}
                   onClick={() => fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-2xl p-6 text-center space-y-3 cursor-pointer transition-all duration-200 ${
+                  className={`border-2 border-dashed rounded-2xl p-5 text-center space-y-2 cursor-pointer transition-all duration-200 ${
                     isDragging
                       ? 'border-blue-600 bg-blue-100/60 dark:bg-blue-950/60 scale-[1.01]'
                       : 'border-blue-300 dark:border-blue-700 bg-blue-50/20 hover:bg-blue-50/50 dark:hover:bg-blue-950/30'
                   }`}
                 >
-                  <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-900/50 text-blue-600 flex items-center justify-center mx-auto shadow-xs">
-                    <Upload className="w-6 h-6" />
+                  <div className="w-10 h-10 rounded-2xl bg-blue-100 dark:bg-blue-900/50 text-blue-600 flex items-center justify-center mx-auto shadow-xs">
+                    <Upload className="w-5 h-5" />
                   </div>
 
                   <div>
-                    <p className="font-bold text-slate-800 dark:text-white text-sm">
-                      {isDragging ? '파일을 여기에 놓아주세요!' : '파일을 마우스로 끌어다 놓으세요 (드래그 & 드롭)'}
+                    <p className="font-bold text-slate-800 dark:text-white text-xs">
+                      {isDragging
+                        ? '파일을 여기에 놓아주세요!'
+                        : '파일을 마우스로 끌어다 놓거나 아래 버튼을 누르세요 (최대 4개)'}
                     </p>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      PDF, HWP, Word, Excel, 이미지 등 지원 (또는 아래 버튼 클릭)
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      PDF, HWP, Word, Excel, 이미지 등 지원 (최대 4개 동시 업로드 가능)
                     </p>
                   </div>
 
-                  <div className="pt-1">
+                  <div className="pt-0.5">
                     <button
                       type="button"
+                      disabled={selectedUploadFiles.length >= 4}
                       onClick={(e) => {
                         e.stopPropagation();
                         fileInputRef.current?.click();
                       }}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
                     >
                       <Upload className="w-3.5 h-3.5" />
-                      파일 선택
+                      {selectedUploadFiles.length >= 4 ? '최대 4개 첨부 완료' : '파일 선택 (다중 선택 가능)'}
                     </button>
                   </div>
 
-                  {/* Attached File Indicator */}
-                  {evalFile && (
+                  {/* Attached Files List (Up to 4 files) */}
+                  {selectedUploadFiles.length > 0 && (
                     <div
+                      className="space-y-1.5 mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-700 text-left"
                       onClick={(e) => e.stopPropagation()}
-                      className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-blue-200 dark:border-slate-700 flex items-center justify-between text-xs mt-3 shadow-xs"
                     >
-                      <div className="flex items-center gap-2 truncate text-left">
-                        <FileText className="w-4 h-4 text-blue-600 shrink-0" />
-                        <div>
-                          <span className="font-bold text-slate-800 dark:text-white truncate block">
-                            {evalFile}
+                      <div className="text-[11px] font-bold text-slate-500 flex items-center justify-between">
+                        <span>선택된 파일 목록 ({selectedUploadFiles.length}/4)</span>
+                        {selectedUploadFiles.length < 4 && (
+                          <span className="text-blue-600 font-semibold text-[10px]">
+                            +{4 - selectedUploadFiles.length}개 더 추가 가능
                           </span>
-                          {selectedFileSize && (
-                            <span className="text-[10px] text-slate-400 block">{selectedFileSize}</span>
-                          )}
-                        </div>
+                        )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEvalFile('');
-                          setSelectedFileSize(null);
-                        }}
-                        className="text-slate-400 hover:text-rose-500 p-1 cursor-pointer"
-                        title="파일 취소"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+                      {selectedUploadFiles.map((file, idx) => (
+                        <div
+                          key={idx}
+                          className="p-2.5 bg-white dark:bg-slate-800 rounded-xl border border-blue-200 dark:border-slate-700 flex items-center justify-between text-xs shadow-xs"
+                        >
+                          <div className="flex items-center gap-2 truncate min-w-0 mr-2">
+                            <span className="w-4 h-4 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-600 font-bold text-[10px] flex items-center justify-center shrink-0">
+                              {idx + 1}
+                            </span>
+                            <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                            <div className="truncate">
+                              <span className="font-bold text-slate-800 dark:text-white truncate block">
+                                {file.name}
+                              </span>
+                              <span className="text-[10px] text-slate-400 block">{formatFileSize(file.size)}</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveUploadFile(idx)}
+                            className="text-slate-400 hover:text-rose-500 p-1 cursor-pointer shrink-0"
+                            title="파일 취소"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>

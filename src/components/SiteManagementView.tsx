@@ -149,8 +149,20 @@ export default function SiteManagementView() {
     setEditCreatedAt(dateStr);
 
     setModifiedBy(site.pmName || '현장 PM');
+    const existingRoles = new Set(site.requirements?.map((r) => r.jobRole) || []);
+    const mergedRequirements = [...(site.requirements || [])];
+    const defaultRolesList = ['공사', '안전', '공무', '품질', '기타'];
+    for (const role of defaultRolesList) {
+      if (!existingRoles.has(role)) {
+        mergedRequirements.push({
+          jobRole: role,
+          requiredCount: 0,
+          currentCount: 0,
+        });
+      }
+    }
     setEditRequirements(
-      site.requirements.map((r) => ({
+      mergedRequirements.map((r) => ({
         ...r,
       }))
     );
@@ -245,6 +257,7 @@ export default function SiteManagementView() {
         { jobRole: '안전', requiredCount: 5, currentCount: 0 },
         { jobRole: '공무', requiredCount: 3, currentCount: 0 },
         { jobRole: '품질', requiredCount: 2, currentCount: 0 },
+        { jobRole: '기타', requiredCount: 1, currentCount: 0 },
       ];
       const res = await fetch('/api/sites', {
         method: 'POST',
